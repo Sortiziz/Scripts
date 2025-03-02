@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Rutas BGP</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        #cy {
+            width: 100%;
+            height: 80vh;
+            border: 1px solid #ccc;
+            background-color: #fff;
+        }
+        /* Estilo para los botones */
+        .button-container {
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            margin-right: 10px;
+            background-color: #ddd;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mapa de Rutas BGP</h1>
+    <div class="button-container">
+        <button onclick="resetPositions()">Restablecer posiciones</button>
+        <button onclick="exportPositions()">Exportar posiciones</button>
+        <button onclick="importPositions()">Importar posiciones</button>
+    </div>
+    <div id="cy"></div>
+
+    <script>
+        // Información de dispositivos
+        const bgp_map = {
+            device_info: {
+                "R1": "Router R1\nIP: 1.1.1.0/24\nAS: 100\nModelo: Cisco Router",
+                "R2": "Router R2\nIP: 2.2.2.0/24\nAS: 200\nModelo: Juniper Router",
+                "R3": "Router R3\nIP: 3.3.3.0/24\nAS: 200\nModelo: Nokia Router",
+                "R4": "Router R4\nIP: 4.4.4.0/24\nAS: 300\nModelo: Huawei Router",
+                "R5": "Router R5\nIP: 5.5.5.0/24\nAS: 400\nModelo: Dell Router"
+            },
+            as_groups: {
+                100: ["R1"],
+                200: ["R2", "R3"],
+                300: ["R4"],
+                400: ["R5"]
+            }
+        };
+
+        // Cargar los datos del grafo
+        fetch('bgp_graph.json')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`No se pudo cargar bgp_graph.json: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
+                    throw new Error('Formato de bgp_graph.json inválido: "nodes" o "edges" no encontrados');
+                }
+
+                // Inicializar Cytoscape
+                const cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: data,
+                    style: [
+                        {
+                            selector: 'node',
+                            style: {
+                                'background-color': 'lightgreen',
+                                'label': 'data(label)',
+                                'text-valign': 'top',
+                                'text-halign': 'center',
+                                'width': 40,
+                                'height': 40,
+                                'font-size': 12,
+                                'border-width': 2,
+                                'border-color': '#000'
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'width': 2,
+                                'line-color': '#999',
+                                'target-arrow-color': '#999',
+                                'target-arrow-shape': 'triangle',
+                                'curve-style': 'bezier',
+                                'label': 'data(weight)',
+                                'font-size': 10,
+                                'text-margin-y': -10
+                            }
+                        },
+                        {
+                            selector: '.interface-node',
+                            style: {
+                                'background-color': 'red',
+                                'width': 10,
+                                'height': 10,
+                                'label': 'data(label)',
+                                'text-valign': 'bottom',
+                                'text-halign': 'center',
+                                'font-size': 8,
+                                'text-margin-y': -15
+                            }
+                        },
+                        {
+                            selector: '.as-node',
+                            style: {
+                                'background-opacity': 0, // Fondo transparente
+                                'border-width': 2,
+                                'border-color': 'black',
+                                'border-style': 'dashed',
+                                'shape': 'ellipse', // Círculo en lugar de cuadrado
+                                'width': 150,
+                                'height': 150,
+                                'label': 'data(label)',
+                                'font-size': 12
+                            }
+                        }
+                    ],
+                    layout: {
+                        name: 'preset', // Usar posiciones predefinidas
+                        padding: 50,
+                        fit: true
+                    },
+                    zoomingEnabled: true,
+                    userZoomingEnabled: true,
+                    panningEnabled: true,
+                    userPanningEnabled: true,
+                    boxSelectionEnabled: false
+                });
+
+                // Asegurar que los nodos AS tengan el estilo correcto
+                cy.nodes('.as-node').forEach(node => {
+                    node.style({
+                        'background-opacity': 0, // Fondo transparente
+                        'border-width': 2,
+                        'border-color': 'black',
+                        'border-style': 'dashed',
+                        'shape': 'ellipse', // Círculo
+                        'width': 150,
+                        'height': 150
+                    });
+                    node.lock(); // Bloquear nodos AS para evitar movimiento
+                });
+
+                // Añadir interfaces (círculos rojos)
+                cy.edges().forEach(edge => {
+                    const source = edge.source();
+                    const target = edge.target();
+                    const sourcePos = source.position();
+                    const targetPos = target.position();
+                    const source_ip = edge.data('source_ip') || 'N/A';
+                    const dest_ip = edge.data('dest_ip') || 'N/A';
+
+                    const sourceLastOctet = source_ip.split('/')[0].split('.').pop();
+                    const destLastOctet = dest_ip.split('/')[0].split('.').pop();
+
+                    const sourceInterfaceId = `${source.id()}-to-${target.id()}-interface`;
+                    const targetInterfaceId = `${target.id()}-to-${source.id()}-interface`;
+
+                    if (!cy.getElementById(sourceInterfaceId).length) {
+                        const sourceInterface = cy.add({
+                            group: 'nodes',
+                            data: { id: sourceInterfaceId, label: sourceLastOctet },
+                            position: sourcePos,
+                            classes: 'interface-node'
+                        });
+                        sourceInterface.lock();
+                    }
+                    if (!cy.getElementById(targetInterfaceId).length) {
+                        const targetInterface = cy.add({
+                            group: 'nodes',
+                            data: { id: targetInterfaceId, label: destLastOctet },
+                            position: targetPos,
+                            classes: 'interface-node'
+                        });
+                        targetInterface.lock();
+                    }
+
+                    const sourceInterface = cy.getElementById(sourceInterfaceId);
+                    const targetInterface = cy.getElementById(targetInterfaceId);
+
+                    const vector = { x: targetPos.x - sourcePos.x, y: targetPos.y - sourcePos.y };
+                    const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+                    if (length > 0) {
+                        const normalized = { x: vector.x / length, y: vector.y / length };
+                        const offset = 20;
+                        sourceInterface.position({
+                            x: sourcePos.x + normalized.x * offset,
+                            y: sourcePos.y + normalized.y * offset
+                        });
+                        targetInterface.position({
+                            x: targetPos.x - normalized.x * offset,
+                            y: targetPos.y - normalized.y * offset
+                        });
+                    }
+                });
+
+                // Añadir nodos AS
+                for (const [as_number, routers] of Object.entries(bgp_map.as_groups)) {
+                    const asNodes = routers.map(r => cy.getElementById(r));
+                    const asPos = asNodes.reduce((acc, node) => {
+                        const pos = node.position();
+                        return { x: acc.x + pos.x / asNodes.length, y: acc.y + pos.y / asNodes.length };
+                    }, { x: 0, y: 0 });
+
+                    const asNodeId = `AS_${as_number}`;
+                    if (!cy.getElementById(asNodeId).length) {
+                        const asNode = cy.add({
+                            group: 'nodes',
+                            data: { id: asNodeId, label: `AS ${as_number}` },
+                            position: asPos,
+                            classes: 'as-node'
+                        });
+                        asNode.lock(); // Bloquear nodo AS
+                    }
+                    asNodes.forEach(node => node.move({ parent: asNodeId }));
+                }
+
+                // Interactividad para mostrar información al hacer doble clic
+                cy.on('tap', 'node', evt => {
+                    const node = evt.target;
+                    if (node.data('id') && !node.hasClass('as-node') && !node.hasClass('interface-node')) {
+                        if (evt.originalEvent.detail === 2) {
+                            alert(node.data('label') + '\n' + bgp_map.device_info[node.data('id')]);
+                        }
+                    }
+                });
+
+                // Ajustar posiciones dinámicamente
+                cy.on('pan zoom dragfree', () => {
+                    cy.edges().forEach(edge => {
+                        const source = edge.source();
+                        const target = edge.target();
+                        const sourcePos = source.position();
+                        const targetPos = target.position();
+                        const sourceInterfaceId = `${source.id()}-to-${target.id()}-interface`;
+                        const targetInterfaceId = `${target.id()}-to-${source.id()}-interface`;
+                        const sourceInterface = cy.getElementById(sourceInterfaceId);
+                        const targetInterface = cy.getElementById(targetInterfaceId);
+
+                        const vector = { x: targetPos.x - sourcePos.x, y: targetPos.y - sourcePos.y };
+                        const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+                        if (length > 0) {
+                            const normalized = { x: vector.x / length, y: vector.y / length };
+                            const offset = 20;
+                            sourceInterface.position({
+                                x: sourcePos.x + normalized.x * offset,
+                                y: sourcePos.y + normalized.y * offset
+                            });
+                            targetInterface.position({
+                                x: targetPos.x - normalized.x * offset,
+                                y: targetPos.y - normalized.y * offset
+                            });
+                        }
+                    });
+
+                    for (const [as_number, routers] of Object.entries(bgp_map.as_groups)) {
+                        const asNodes = routers.map(r => cy.getElementById(r));
+                        const asPos = asNodes.reduce((acc, node) => {
+                            const pos = node.position();
+                            return { x: acc.x + pos.x / asNodes.length, y: acc.y + pos.y / asNodes.length };
+                        }, { x: 0, y: 0 });
+                        const asNodeId = `AS_${as_number}`;
+                        cy.getElementById(asNodeId).position(asPos);
+                    }
+                });
+
+                // Funciones para los botones
+                window.resetPositions = function() {
+                    cy.fit(); // Restablecer el layout al ajuste inicial
+                };
+
+                window.exportPositions = function() {
+                    const positions = {};
+                    cy.nodes().forEach(node => {
+                        positions[node.id()] = node.position();
+                    });
+                    const json = JSON.stringify(positions, null, 2);
+                    const blob = new Blob([json], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'positions.json';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                };
+
+                window.importPositions = function() {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.json';
+                    input.onchange = e => {
+                        const file = e.target.files[0];
+                        const reader = new FileReader();
+                        reader.onload = event => {
+                            const positions = JSON.parse(event.target.result);
+                            cy.nodes().forEach(node => {
+                                const pos = positions[node.id()];
+                                if (pos) node.position(pos);
+                            });
+                            cy.fit();
+                        };
+                        reader.readAsText(file);
+                    };
+                    input.click();
+                };
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al cargar el mapa BGP: ' + error.message);
+            });
+    </script>
+</body>
+</html>
