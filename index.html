@@ -4,7 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapa de Rutas BGP</title>
+    <!-- Bibliotecas externas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script src="https://unpkg.com/@popperjs/core@2"></script>
+    <script src="https://unpkg.com/tippy.js@6"></script>
+    <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light.css"/>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -38,6 +43,12 @@
             margin-right: 5px;
             padding: 5px 10px;
         }
+        #popper-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -48,7 +59,7 @@
         <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1">
     </div>
     
-    <div id="color-modal" style="display: none; position: absolute; background: white; border: 1px solid #ccc; padding: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 1000;">
+    <div id="color-modal">
         <h4>Selecciona el color para este AS</h4>
         <label for="color-input">Color: </label>
         <input type="color" id="color-input">
@@ -57,51 +68,11 @@
         <button onclick="hideColorModal()">Cancelar</button>
     </div>
 
+    <div id="popper-container"></div>
+
     <script>
         let selectedAs = null;
-
-        function consolidarEnlacesBidireccionales(edges) {
-            const enlacesUnicos = new Map();
-            const enlacesProcesados = [];
-
-            edges.forEach(edge => {
-                const source = edge.data.source;
-                const target = edge.data.target;
-                const red = edge.data.weight;
-                const clave = [source, target].sort().join('-') + '-' + red;
-
-                if (!enlacesUnicos.has(clave)) {
-                    enlacesUnicos.set(clave, []);
-                }
-                enlacesUnicos.get(clave).push(edge);
-            });
-
-            enlacesUnicos.forEach((grupo) => {
-                if (grupo.length === 2) {
-                    const [enlace1, enlace2] = grupo;
-                    if (enlace1.data.source === enlace2.data.target && enlace1.data.target === enlace2.data.source) {
-                        const enlaceBidireccional = {
-                            data: {
-                                id: `${enlace1.data.source}-${enlace1.data.target}-bidireccional`,
-                                source: enlace1.data.source,
-                                target: enlace1.data.target,
-                                weight: enlace1.data.weight,
-                                sourceInterface: enlace1.data.sourceInterface,
-                                targetInterface: enlace1.data.targetInterface,
-                                bidireccional: true
-                            }
-                        };
-                        enlacesProcesados.push(enlaceBidireccional);
-                    } else {
-                        enlacesProcesados.push(...grupo);
-                    }
-                } else {
-                    enlacesProcesados.push(...grupo);
-                }
-            });
-
-            return enlacesProcesados;
-        }
+        let cy;
 
         function showColorModal(x, y, asId) {
             selectedAs = asId;
@@ -113,8 +84,7 @@
         }
 
         function hideColorModal() {
-            const modal = document.getElementById('color-modal');
-            modal.style.display = 'none';
+            document.getElementById('color-modal').style.display = 'none';
             selectedAs = null;
         }
 
@@ -128,9 +98,7 @@
 
         fetch('bgp_graph.json')
             .then(response => {
-                if (!response.ok) {
-                    throw new Error(`No se pudo cargar bgp_graph.json: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`No se pudo cargar bgp_graph.json: ${response.status}`);
                 return response.json();
             })
             .then(data => {
@@ -138,130 +106,74 @@
                     throw new Error('Formato de bgp_graph.json inválido');
                 }
 
-                data.edges = consolidarEnlacesBidireccionales(data.edges);
-
-                const asSet = new Set();
-                data.nodes.forEach(node => {
-                    if (node.data.as) {
-                        asSet.add(node.data.as);
-                    }
-                });
-
-                const asNodes = Array.from(asSet).map(asId => {
-                    const asNode = data.nodes.find(node => node.data.id === asId);
-                    return {
-                        data: {
-                            id: asId,
-                            label: `AS ${asId}`,
-                            color: asNode?.data.color || '#ddd'
-                        }
-                    };
-                });
-
-                data.nodes.forEach(node => {
-                    if (node.data.as) {
-                        node.data.parent = node.data.as;
-                    }
-                });
-
-                const allNodes = asNodes.concat(data.nodes);
-
-                const cy = window.cy = cytoscape({
+                cy = cytoscape({
                     container: document.getElementById('cy'),
-                    elements: {
-                        nodes: allNodes,
-                        edges: data.edges
-                    },
+                    elements: { nodes: data.nodes, edges: data.edges },
                     style: [
                         {
                             selector: 'node',
                             style: {
                                 'label': 'data(label)',
-                                'text-valign': 'center', // Centrar el texto dentro del círculo
+                                'text-valign': 'center',
                                 'text-halign': 'center',
-                                'font-size': 14, // Aumentar tamaño para mejor legibilidad
-                                'color': '#000' // Texto negro para contraste con fondo verde
+                                'font-size': 14,
+                                'color': '#000'
                             }
                         },
                         {
-                            selector: 'node[parent]',
+                            selector: 'node[parent]', // Routers dentro de AS
                             style: {
-                                'background-color': '#00cc00', // Verde más vibrante como en Cisco Packet Tracer
-                                'shape': 'ellipse',
-                                'width': 50, // Aumentar tamaño del círculo para más espacio
-                                'height': 50,
+                                'background-color': '#00FF00', // Verde
+                                'shape': 'ellipse', // Círculo
+                                'width': 40, // Igualar ancho y alto para círculo
+                                'height': 40,
                                 'border-width': 2,
                                 'border-color': '#000'
                             }
                         },
                         {
-                            selector: 'node[!parent]',
+                            selector: 'node[!parent]', // AS
                             style: {
                                 'shape': 'rectangle',
-                                'background-color': 'data(color)',
+                                'background-color': '#ddd',
                                 'padding': 20,
                                 'font-size': 16,
                                 'text-valign': 'top',
                                 'text-halign': 'center',
                                 'text-margin-y': -10,
-                                'color': '#000', // Texto negro para contraste
-                                'border-width': 2, // Borde más definido como en Cisco Packet Tracer
-                                'border-color': '#666' // Borde gris oscuro
+                                'border-width': 2,
+                                'border-color': '#000',
+                                'border-style': 'dashed'
                             }
                         },
                         {
                             selector: 'edge',
                             style: {
-                                'width': 3, // Enlaces más gruesos para mejor visibilidad
+                                'width': 3,
                                 'line-color': '#000',
-                                'source-arrow-shape': 'circle',
-                                'source-arrow-color': '#000',
-                                'target-arrow-shape': 'circle',
-                                'target-arrow-color': '#000',
                                 'curve-style': 'bezier',
-                                'label': 'data(weight)', // Mostrar la red en el medio del enlace
-                                'font-size': 12,
-                                'color': '#fff', // Texto blanco para contraste
-                                'text-background-color': 'rgba(0, 0, 0, 0.7)', // Fondo negro semi-transparente
-                                'text-background-opacity': 0.7,
-                                'text-background-padding': 4, // Más padding para las etiquetas
-                                'text-margin-y': 0
-                            }
-                        },
-                        {
-                            selector: 'edge[bidireccional]',
-                            style: {
-                                'source-arrow-shape': 'circle',
-                                'source-arrow-color': '#000',
-                                'target-arrow-shape': 'circle',
-                                'target-arrow-color': '#000'
-                            }
-                        },
-                        {
-                            selector: 'edge',
-                            style: {
+                                'label': 'data(weight)', // ID de red (ej. 192.168.1.0/30)
+                                'font-size': 14, // Aumentar tamaño de fuente
+                                'color': '#00008B', // Azul oscuro para mejor contraste
+                                'text-background-color': '#FFFFFF', // Fondo blanco
+                                'text-background-opacity': 1, // Fondo opaco
+                                'text-background-padding': 2, // Espacio alrededor del texto
                                 'source-label': function(ele) {
                                     const sourceNode = cy.$id(ele.data('source'));
                                     const sourceIp = sourceNode.data('interfaces')[ele.data('sourceInterface')];
-                                    const lastOctet = sourceIp.split('.')[3].split('/')[0];
-                                    return `.${lastOctet}`; // Mostrar solo el último octeto (por ejemplo, ".1")
+                                    return `.${sourceIp.split('.')[3].split('/')[0]}`; // Ej. ".1"
                                 },
-                                'source-text-margin-x': 15, // Más margen para evitar solapamiento
-                                'source-text-margin-y': 0,
                                 'target-label': function(ele) {
                                     const targetNode = cy.$id(ele.data('target'));
                                     const targetIp = targetNode.data('interfaces')[ele.data('targetInterface')];
-                                    const lastOctet = targetIp.split('.')[3].split('/')[0];
-                                    return `.${lastOctet}`; // Mostrar solo el último octeto (por ejemplo, ".2")
+                                    return `.${targetIp.split('.')[3].split('/')[0]}`; // Ej. ".2"
                                 },
-                                'target-text-margin-x': -15, // Más margen para evitar solapamiento
+                                'source-text-margin-x': 20, // Separar etiquetas del origen
+                                'target-text-margin-x': -20, // Separar etiquetas del destino
+                                'source-text-margin-y': 0,
                                 'target-text-margin-y': 0,
-                                'source-label-font-size': 12,
-                                'target-label-font-size': 12,
-                                'color': '#fff', // Texto blanco para contraste
-                                'text-background-color': 'rgba(0, 0, 0, 0.7)', // Fondo negro semi-transparente
-                                'text-background-opacity': 0.7,
-                                'text-background-padding': 3
+                                'font-size': 14, // Aumentar tamaño de fuente para octetos
+                                'color': '#00008B' // Azul oscuro para octetos
                             }
                         }
                     ],
@@ -269,25 +181,83 @@
                         name: 'cose',
                         padding: 50,
                         fit: true,
-                        componentSpacing: 150, // Más espacio entre componentes para legibilidad
-                        nodeRepulsion: 500000, // Aumentar repulsión para evitar solapamientos
-                        idealEdgeLength: 120, // Aumentar longitud ideal de los enlaces
+                        componentSpacing: 150,
+                        nodeRepulsion: 500000,
+                        idealEdgeLength: 120,
                         nodeOverlap: 30,
                         animate: true
                     }
                 });
 
-                // Control del zoom
+                // Control de zoom
                 document.getElementById('zoom-slider').addEventListener('input', function() {
-                    const zoomLevel = parseFloat(this.value);
-                    cy.zoom(zoomLevel);
+                    cy.zoom(parseFloat(this.value));
                 });
 
-                // Mostrar modal al hacer doble clic en un nodo AS
-                cy.on('dblclick', 'node[!parent]', function(evt) {
+                // Modal para cambiar color de AS con doble clic
+                cy.on('dblclick', 'node[!parent]', evt => {
                     const node = evt.target;
                     const pos = node.renderedPosition();
                     showColorModal(pos.x, pos.y, node.id());
+                });
+
+                // Tooltips para nodos usando Popper.js directamente
+                const popperContainer = document.getElementById('popper-container');
+                cy.nodes().forEach(node => {
+                    const popperDiv = document.createElement('div');
+                    popperDiv.style.position = 'absolute';
+                    popperDiv.style.width = '1px';
+                    popperDiv.style.height = '1px';
+                    popperContainer.appendChild(popperDiv);
+
+                    const updatePosition = () => {
+                        const pos = node.renderedPosition();
+                        popperDiv.style.left = `${pos.x}px`;
+                        popperDiv.style.top = `${pos.y}px`;
+                    };
+                    updatePosition();
+
+                    cy.on('pan zoom resize', updatePosition);
+                    node.on('position', updatePosition);
+
+                    const tip = tippy(popperDiv, {
+                        content: `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`,
+                        theme: 'light',
+                        placement: 'top',
+                        trigger: 'manual',
+                    });
+
+                    node.on('mouseover', () => tip.show());
+                    node.on('mouseout', () => tip.hide());
+                });
+
+                // Tooltips para enlaces usando Popper.js directamente
+                cy.edges().forEach(edge => {
+                    const popperDiv = document.createElement('div');
+                    popperDiv.style.position = 'absolute';
+                    popperDiv.style.width = '1px';
+                    popperDiv.style.height = '1px';
+                    popperContainer.appendChild(popperDiv);
+
+                    const updatePosition = () => {
+                        const pos = edge.renderedMidpoint();
+                        popperDiv.style.left = `${pos.x}px`;
+                        popperDiv.style.top = `${pos.y}px`;
+                    };
+                    updatePosition();
+
+                    cy.on('pan zoom resize', updatePosition);
+                    edge.on('position', updatePosition);
+
+                    const tip = tippy(popperDiv, {
+                        content: `Subred: ${edge.data('weight')}`,
+                        theme: 'light',
+                        placement: 'top',
+                        trigger: 'manual',
+                    });
+
+                    edge.on('mouseover', () => tip.show());
+                    edge.on('mouseout', () => tip.hide());
                 });
             })
             .catch(error => {

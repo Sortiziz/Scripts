@@ -1,19 +1,16 @@
 {
     "nodes": [
-        { "data": { "id": "AS100", "label": "AS 100", "color": "#ddd" } },
-        { "data": { "id": "AS200", "label": "AS 200", "color": "#ddd" } },
-        { "data": { "id": "AS300", "label": "AS 300", "color": "#ddd" } },
-        { "data": { "id": "AS400", "label": "AS 400", "color": "#ddd" } },
-        { "data": { "id": "R1", "label": "R1", "as": "AS100", "interfaces": { "R1-R2": "10.12.12.1/24" } } },
-        { "data": { "id": "R2", "label": "R2", "as": "AS200", "interfaces": { "R2-R1": "10.12.12.2/24", "R2-R3": "10.23.23.2/24", "R2-R4": "10.24.24.2/24" } } },
-        { "data": { "id": "R3", "label": "R3", "as": "AS400", "interfaces": { "R3-R2": "10.23.23.3/24", "R3-R5": "10.35.35.3/24" } } },
-        { "data": { "id": "R4", "label": "R4", "as": "AS300", "interfaces": { "R4-R2": "10.24.24.4/24" } } },
-        { "data": { "id": "R5", "label": "R5", "as": "AS200", "interfaces": { "R5-R3": "10.35.35.5/24" } } }
+        { "data": { "id": "AS1", "label": "AS1" } },
+        { "data": { "id": "R1", "label": "R1", "parent": "AS1", "interfaces": { "eth0": "192.168.1.1/30" } } },
+        { "data": { "id": "R2", "label": "R2", "parent": "AS1", "interfaces": { "eth0": "192.168.2.1/30" } } },
+        { "data": { "id": "AS2", "label": "AS2" } },
+        { "data": { "id": "R3", "label": "R3", "parent": "AS2", "interfaces": { "eth0": "192.168.1.2/30", "eth1": "192.168.3.1/30" } } },
+        { "data": { "id": "AS3", "label": "AS3" } },
+        { "data": { "id": "R4", "label": "R4", "parent": "AS3", "interfaces": { "eth0": "192.168.2.2/30", "eth1": "192.168.3.2/30" } } }
     ],
     "edges": [
-        { "data": { "source": "R1", "target": "R2", "weight": "10.12.12.0/24", "sourceInterface": "R1-R2", "targetInterface": "R2-R1" } },
-        { "data": { "source": "R2", "target": "R3", "weight": "10.23.23.0/24", "sourceInterface": "R2-R3", "targetInterface": "R3-R2" } },
-        { "data": { "source": "R2", "target": "R4", "weight": "10.24.24.0/24", "sourceInterface": "R2-R4", "targetInterface": "R4-R2" } },
-        { "data": { "source": "R3", "target": "R5", "weight": "10.35.35.0/24", "sourceInterface": "R3-R5", "targetInterface": "R5-R3" } }
+        { "data": { "id": "e1", "source": "R1", "target": "R3", "weight": "192.168.1.0/30", "sourceInterface": "eth0", "targetInterface": "eth0" } },
+        { "data": { "id": "e2", "source": "R2", "target": "R4", "weight": "192.168.2.0/30", "sourceInterface": "eth0", "targetInterface": "eth0" } },
+        { "data": { "id": "e3", "source": "R3", "target": "R4", "weight": "192.168.3.0/30", "sourceInterface": "eth1", "targetInterface": "eth1" } }
     ]
 }
