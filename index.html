@@ -18,28 +18,113 @@
             border: 1px solid #ccc;
             background-color: #fff;
         }
+        #color-modal {
+            width: 200px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+            position: absolute;
+            background: white;
+            display: none;
+        }
+        #color-modal input[type="color"] {
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        #color-modal button {
+            margin-top: 10px;
+            margin-right: 5px;
+            padding: 5px 10px;
+        }
     </style>
 </head>
 <body>
     <h1>Mapa de Rutas BGP</h1>
     <div id="cy"></div>
+    <div>
+        <label for="zoom-slider">Zoom: </label>
+        <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1">
+    </div>
+    
+    <div id="color-modal" style="display: none; position: absolute; background: white; border: 1px solid #ccc; padding: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 1000;">
+        <h4>Selecciona el color para este AS</h4>
+        <label for="color-input">Color: </label>
+        <input type="color" id="color-input">
+        <br><br>
+        <button onclick="applyColor()">Aplicar</button>
+        <button onclick="hideColorModal()">Cancelar</button>
+    </div>
 
     <script>
-        const bgp_map = {
-            device_info: {
-                "R1": "Router R1\nIP: 1.1.1.0/24\nAS: 100\nModelo: Cisco Router",
-                "R2": "Router R2\nIP: 2.2.2.0/24\nAS: 200\nModelo: Juniper Router",
-                "R3": "Router R3\nIP: 3.3.3.0/24\nAS: 200\nModelo: Nokia Router",
-                "R4": "Router R4\nIP: 4.4.4.0/24\nAS: 300\nModelo: Huawei Router",
-                "R5": "Router R5\nIP: 5.5.5.0/24\nAS: 400\nModelo: Dell Router"
-            },
-            as_groups: {
-                100: ["R1"],
-                200: ["R2", "R3"],
-                300: ["R4"],
-                400: ["R5"]
+        let selectedAs = null;
+
+        function consolidarEnlacesBidireccionales(edges) {
+            const enlacesUnicos = new Map();
+            const enlacesProcesados = [];
+
+            edges.forEach(edge => {
+                const source = edge.data.source;
+                const target = edge.data.target;
+                const red = edge.data.weight;
+                const clave = [source, target].sort().join('-') + '-' + red;
+
+                if (!enlacesUnicos.has(clave)) {
+                    enlacesUnicos.set(clave, []);
+                }
+                enlacesUnicos.get(clave).push(edge);
+            });
+
+            enlacesUnicos.forEach((grupo) => {
+                if (grupo.length === 2) {
+                    const [enlace1, enlace2] = grupo;
+                    if (enlace1.data.source === enlace2.data.target && enlace1.data.target === enlace2.data.source) {
+                        const enlaceBidireccional = {
+                            data: {
+                                id: `${enlace1.data.source}-${enlace1.data.target}-bidireccional`,
+                                source: enlace1.data.source,
+                                target: enlace1.data.target,
+                                weight: enlace1.data.weight,
+                                sourceInterface: enlace1.data.sourceInterface,
+                                targetInterface: enlace1.data.targetInterface,
+                                bidireccional: true
+                            }
+                        };
+                        enlacesProcesados.push(enlaceBidireccional);
+                    } else {
+                        enlacesProcesados.push(...grupo);
+                    }
+                } else {
+                    enlacesProcesados.push(...grupo);
+                }
+            });
+
+            return enlacesProcesados;
+        }
+
+        function showColorModal(x, y, asId) {
+            selectedAs = asId;
+            const modal = document.getElementById('color-modal');
+            modal.style.left = `${x + 10}px`;
+            modal.style.top = `${y - 10}px`;
+            modal.style.display = 'block';
+            document.getElementById('color-input').value = cy.$id(asId).style('background-color') || '#ddd';
+        }
+
+        function hideColorModal() {
+            const modal = document.getElementById('color-modal');
+            modal.style.display = 'none';
+            selectedAs = null;
+        }
+
+        function applyColor() {
+            if (selectedAs) {
+                const newColor = document.getElementById('color-input').value;
+                cy.$id(selectedAs).style('background-color', newColor);
             }
-        };
+            hideColorModal();
+        }
 
         fetch('bgp_graph.json')
             .then(response => {
@@ -53,99 +138,156 @@
                     throw new Error('Formato de bgp_graph.json inválido');
                 }
 
-                const cy = cytoscape({
+                data.edges = consolidarEnlacesBidireccionales(data.edges);
+
+                const asSet = new Set();
+                data.nodes.forEach(node => {
+                    if (node.data.as) {
+                        asSet.add(node.data.as);
+                    }
+                });
+
+                const asNodes = Array.from(asSet).map(asId => {
+                    const asNode = data.nodes.find(node => node.data.id === asId);
+                    return {
+                        data: {
+                            id: asId,
+                            label: `AS ${asId}`,
+                            color: asNode?.data.color || '#ddd'
+                        }
+                    };
+                });
+
+                data.nodes.forEach(node => {
+                    if (node.data.as) {
+                        node.data.parent = node.data.as;
+                    }
+                });
+
+                const allNodes = asNodes.concat(data.nodes);
+
+                const cy = window.cy = cytoscape({
                     container: document.getElementById('cy'),
-                    elements: data,
+                    elements: {
+                        nodes: allNodes,
+                        edges: data.edges
+                    },
                     style: [
                         {
                             selector: 'node',
                             style: {
-                                'background-color': 'lightgreen',
                                 'label': 'data(label)',
-                                'text-valign': 'top',
+                                'text-valign': 'center', // Centrar el texto dentro del círculo
                                 'text-halign': 'center',
-                                'width': 40,
-                                'height': 40,
-                                'font-size': 12,
+                                'font-size': 14, // Aumentar tamaño para mejor legibilidad
+                                'color': '#000' // Texto negro para contraste con fondo verde
+                            }
+                        },
+                        {
+                            selector: 'node[parent]',
+                            style: {
+                                'background-color': '#00cc00', // Verde más vibrante como en Cisco Packet Tracer
+                                'shape': 'ellipse',
+                                'width': 50, // Aumentar tamaño del círculo para más espacio
+                                'height': 50,
                                 'border-width': 2,
                                 'border-color': '#000'
                             }
                         },
                         {
-                            selector: 'edge',
+                            selector: 'node[!parent]',
                             style: {
-                                'width': 2,
-                                'line-color': '#999',
-                                'target-arrow-color': '#999',
-                                'target-arrow-shape': 'triangle',
-                                'curve-style': 'bezier',
-                                'label': 'data(weight)',
-                                'font-size': 10,
-                                'text-margin-y': -10
-                            }
-                        },
-                        {
-                            selector: '.as-node',
-                            style: {
-                                'background-color': 'transparent',
-                                'background-opacity': 0,
-                                'border-width': 2,
-                                'border-color': 'black',
-                                'border-style': 'dashed',
-                                'shape': 'ellipse',
-                                'width': 150,
-                                'height': 150,
-                                'label': 'data(label)',
-                                'font-size': 12,
+                                'shape': 'rectangle',
+                                'background-color': 'data(color)',
+                                'padding': 20,
+                                'font-size': 16,
                                 'text-valign': 'top',
                                 'text-halign': 'center',
-                                'text-margin-y': -5  // Ajustado para acercar el texto al nodo
+                                'text-margin-y': -10,
+                                'color': '#000', // Texto negro para contraste
+                                'border-width': 2, // Borde más definido como en Cisco Packet Tracer
+                                'border-color': '#666' // Borde gris oscuro
                             }
                         },
                         {
-                            selector: 'node:parent',
+                            selector: 'edge',
                             style: {
-                                'background-color': 'transparent',
-                                'background-opacity': 0
+                                'width': 3, // Enlaces más gruesos para mejor visibilidad
+                                'line-color': '#000',
+                                'source-arrow-shape': 'circle',
+                                'source-arrow-color': '#000',
+                                'target-arrow-shape': 'circle',
+                                'target-arrow-color': '#000',
+                                'curve-style': 'bezier',
+                                'label': 'data(weight)', // Mostrar la red en el medio del enlace
+                                'font-size': 12,
+                                'color': '#fff', // Texto blanco para contraste
+                                'text-background-color': 'rgba(0, 0, 0, 0.7)', // Fondo negro semi-transparente
+                                'text-background-opacity': 0.7,
+                                'text-background-padding': 4, // Más padding para las etiquetas
+                                'text-margin-y': 0
+                            }
+                        },
+                        {
+                            selector: 'edge[bidireccional]',
+                            style: {
+                                'source-arrow-shape': 'circle',
+                                'source-arrow-color': '#000',
+                                'target-arrow-shape': 'circle',
+                                'target-arrow-color': '#000'
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'source-label': function(ele) {
+                                    const sourceNode = cy.$id(ele.data('source'));
+                                    const sourceIp = sourceNode.data('interfaces')[ele.data('sourceInterface')];
+                                    const lastOctet = sourceIp.split('.')[3].split('/')[0];
+                                    return `.${lastOctet}`; // Mostrar solo el último octeto (por ejemplo, ".1")
+                                },
+                                'source-text-margin-x': 15, // Más margen para evitar solapamiento
+                                'source-text-margin-y': 0,
+                                'target-label': function(ele) {
+                                    const targetNode = cy.$id(ele.data('target'));
+                                    const targetIp = targetNode.data('interfaces')[ele.data('targetInterface')];
+                                    const lastOctet = targetIp.split('.')[3].split('/')[0];
+                                    return `.${lastOctet}`; // Mostrar solo el último octeto (por ejemplo, ".2")
+                                },
+                                'target-text-margin-x': -15, // Más margen para evitar solapamiento
+                                'target-text-margin-y': 0,
+                                'source-label-font-size': 12,
+                                'target-label-font-size': 12,
+                                'color': '#fff', // Texto blanco para contraste
+                                'text-background-color': 'rgba(0, 0, 0, 0.7)', // Fondo negro semi-transparente
+                                'text-background-opacity': 0.7,
+                                'text-background-padding': 3
                             }
                         }
                     ],
                     layout: {
-                        name: 'preset',
+                        name: 'cose',
                         padding: 50,
-                        fit: true
+                        fit: true,
+                        componentSpacing: 150, // Más espacio entre componentes para legibilidad
+                        nodeRepulsion: 500000, // Aumentar repulsión para evitar solapamientos
+                        idealEdgeLength: 120, // Aumentar longitud ideal de los enlaces
+                        nodeOverlap: 30,
+                        animate: true
                     }
                 });
 
-                // Añadir nodos AS como padres
-                for (const [as_number, routers] of Object.entries(bgp_map.as_groups)) {
-                    const asNodes = routers.map(r => cy.getElementById(r));
-                    const asPos = asNodes.reduce((acc, node) => {
-                        const pos = node.position();
-                        return {
-                            x: acc.x + pos.x / asNodes.length,
-                            y: acc.y + pos.y / asNodes.length
-                        };
-                    }, { x: 0, y: 0 });
+                // Control del zoom
+                document.getElementById('zoom-slider').addEventListener('input', function() {
+                    const zoomLevel = parseFloat(this.value);
+                    cy.zoom(zoomLevel);
+                });
 
-                    cy.add({
-                        group: 'nodes',
-                        data: { id: `AS_${as_number}`, label: `AS ${as_number}` },
-                        position: asPos,
-                        classes: 'as-node'
-                    });
-
-                    asNodes.forEach(node => node.move({ parent: `AS_${as_number}` }));
-                }
-
-                // Manejo de eventos para mostrar información
-                cy.on('tap', 'node', evt => {
+                // Mostrar modal al hacer doble clic en un nodo AS
+                cy.on('dblclick', 'node[!parent]', function(evt) {
                     const node = evt.target;
-                    if (node.data('id') && !node.hasClass('as-node')) {
-                        if (evt.originalEvent.detail === 2) { // Doble clic
-                            alert(node.data('label') + '\n' + bgp_map.device_info[node.data('id')]);
-                        }
-                    }
+                    const pos = node.renderedPosition();
+                    showColorModal(pos.x, pos.y, node.id());
                 });
             })
             .catch(error => {
