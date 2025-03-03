@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapa de Rutas BGP</title>
-    <!-- Bibliotecas externas -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
-    <script src="https://unpkg.com/jquery@3.6.0/dist/jquery.min.js"></script>
-    <script src="https://unpkg.com/@popperjs/core@2"></script>
-    <script src="https://unpkg.com/tippy.js@6"></script>
-    <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light.css"/>
+    <!-- Bibliotecas locales -->
+    <script src="lib/cytoscape.min.js"></script>
+    <script src="lib/jquery.min.js"></script>
+    <script src="lib/popper.min.js"></script>
+    <script src="lib/tippy-bundle.umd.min.js"></script>
+    <link rel="stylesheet" href="lib/tippy.css"/>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -24,15 +24,20 @@
             background-color: #fff;
         }
         #color-modal {
-            width: 200px;
-            border-radius: 5px;
+            width: 250px;
+            border-radius: 8px;
             border: 1px solid #ccc;
-            padding: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            padding: 15px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
             z-index: 1000;
             position: absolute;
             background: white;
             display: none;
+            transition: opacity 0.3s ease;
+            opacity: 0;
+        }
+        #color-modal.show {
+            opacity: 1;
         }
         #color-modal input[type="color"] {
             vertical-align: middle;
@@ -41,13 +46,29 @@
         #color-modal button {
             margin-top: 10px;
             margin-right: 5px;
-            padding: 5px 10px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+        }
+        #color-modal button:hover {
+            background-color: #0056b3;
         }
         #popper-container {
             position: absolute;
             top: 0;
             left: 0;
             pointer-events: none;
+        }
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            color: #333;
         }
     </style>
 </head>
@@ -69,31 +90,26 @@
     </div>
 
     <div id="popper-container"></div>
+    <div id="loading" class="loading">Cargando mapa...</div>
 
     <script>
-        let selectedAs = null;
         let cy;
+        let selectedAs = null;
 
-        function showColorModal(x, y, asId) {
-            selectedAs = asId;
-            const modal = document.getElementById('color-modal');
-            modal.style.left = `${x + 10}px`;
-            modal.style.top = `${y - 10}px`;
-            modal.style.display = 'block';
-            document.getElementById('color-input').value = cy.$id(asId).style('background-color') || '#ddd';
-        }
+        // Mostrar mensaje de carga
+        document.getElementById('loading').style.display = 'block';
 
-        function hideColorModal() {
-            document.getElementById('color-modal').style.display = 'none';
-            selectedAs = null;
-        }
-
-        function applyColor() {
-            if (selectedAs) {
-                const newColor = document.getElementById('color-input').value;
-                cy.$id(selectedAs).style('background-color', newColor);
+        // Función para validar datos
+        function validateGraphData(data) {
+            if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
+                throw new Error('Formato de bgp_graph.json inválido');
             }
-            hideColorModal();
+            data.nodes.forEach(node => {
+                if (node.data.parent && !node.data.interfaces) {
+                    console.warn(`Nodo ${node.data.id} tiene parent pero no interfaces`);
+                }
+            });
+            return true;
         }
 
         fetch('bgp_graph.json')
@@ -102,168 +118,205 @@
                 return response.json();
             })
             .then(data => {
-                if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
-                    throw new Error('Formato de bgp_graph.json inválido');
-                }
-
-                cy = cytoscape({
-                    container: document.getElementById('cy'),
-                    elements: { nodes: data.nodes, edges: data.edges },
-                    style: [
-                        {
-                            selector: 'node',
-                            style: {
-                                'label': 'data(label)',
-                                'text-valign': 'center',
-                                'text-halign': 'center',
-                                'font-size': 14,
-                                'color': '#000'
+                try {
+                    validateGraphData(data);
+                    cy = cytoscape({
+                        container: document.getElementById('cy'),
+                        elements: { nodes: data.nodes, edges: data.edges },
+                        style: [
+                            {
+                                selector: 'node[parent]', // Routers dentro de AS
+                                style: {
+                                    'background-color': '#00FF00', // Verde
+                                    'shape': 'ellipse', // Círculo
+                                    'width': 60, // Tamaño optimizado
+                                    'height': 60,
+                                    'label': 'data(label)',
+                                    'text-valign': 'center',
+                                    'text-halign': 'center',
+                                    'font-size': 14,
+                                    'color': '#000',
+                                    'border-width': 2,
+                                    'border-color': '#000'
+                                }
+                            },
+                            {
+                                selector: 'node[!parent]', // AS
+                                style: {
+                                    'shape': 'rectangle',
+                                    'background-color': '#ddd',
+                                    'padding': 20,
+                                    'label': 'data(label)',
+                                    'font-size': 16,
+                                    'text-valign': 'top',
+                                    'text-halign': 'center',
+                                    'text-margin-y': -10,
+                                    'border-width': 2,
+                                    'border-color': '#000',
+                                    'border-style': 'dashed'
+                                }
+                            },
+                            {
+                                selector: 'edge',
+                                style: {
+                                    'width': 3,
+                                    'line-color': '#000',
+                                    'curve-style': 'bezier',
+                                    'label': 'data(weight)', // ID de red en el centro
+                                    'font-size': 14,
+                                    'color': '#00008B',
+                                    'text-background-color': '#FFFFFF',
+                                    'text-background-opacity': 0.9, // Ligeramente translúcido
+                                    'text-background-padding': 3,
+                                    'source-label': ele => {
+                                        const sourceNode = cy.$id(ele.data('source'));
+                                        if (!sourceNode) return '.?';
+                                        const sourceIp = sourceNode.data('interfaces')?.[ele.data('sourceInterface')];
+                                        return sourceIp ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
+                                    },
+                                    'target-label': ele => {
+                                        const targetNode = cy.$id(ele.data('target'));
+                                        if (!targetNode) return '.?';
+                                        const targetIp = targetNode.data('interfaces')?.[ele.data('targetInterface')];
+                                        return targetIp ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
+                                    },
+                                    'source-text-offset': 30,
+                                    'target-text-offset': 30,
+                                    'source-text-margin-y': -10,
+                                    'target-text-margin-y': -10,
+                                    'font-size': 14,
+                                    'color': '#00008B'
+                                }
                             }
-                        },
-                        {
-                            selector: 'node[parent]', // Routers dentro de AS
-                            style: {
-                                'background-color': '#00FF00', // Verde
-                                'shape': 'ellipse', // Círculo
-                                'width': 40, // Igualar ancho y alto para círculo
-                                'height': 40,
-                                'border-width': 2,
-                                'border-color': '#000'
-                            }
-                        },
-                        {
-                            selector: 'node[!parent]', // AS
-                            style: {
-                                'shape': 'rectangle',
-                                'background-color': '#ddd',
-                                'padding': 20,
-                                'font-size': 16,
-                                'text-valign': 'top',
-                                'text-halign': 'center',
-                                'text-margin-y': -10,
-                                'border-width': 2,
-                                'border-color': '#000',
-                                'border-style': 'dashed'
-                            }
-                        },
-                        {
-                            selector: 'edge',
-                            style: {
-                                'width': 3,
-                                'line-color': '#000',
-                                'curve-style': 'bezier',
-                                'label': 'data(weight)', // ID de red (ej. 192.168.1.0/30)
-                                'font-size': 14, // Aumentar tamaño de fuente
-                                'color': '#00008B', // Azul oscuro para mejor contraste
-                                'text-background-color': '#FFFFFF', // Fondo blanco
-                                'text-background-opacity': 1, // Fondo opaco
-                                'text-background-padding': 2, // Espacio alrededor del texto
-                                'source-label': function(ele) {
-                                    const sourceNode = cy.$id(ele.data('source'));
-                                    const sourceIp = sourceNode.data('interfaces')[ele.data('sourceInterface')];
-                                    return `.${sourceIp.split('.')[3].split('/')[0]}`; // Ej. ".1"
-                                },
-                                'target-label': function(ele) {
-                                    const targetNode = cy.$id(ele.data('target'));
-                                    const targetIp = targetNode.data('interfaces')[ele.data('targetInterface')];
-                                    return `.${targetIp.split('.')[3].split('/')[0]}`; // Ej. ".2"
-                                },
-                                'source-text-margin-x': 20, // Separar etiquetas del origen
-                                'target-text-margin-x': -20, // Separar etiquetas del destino
-                                'source-text-margin-y': 0,
-                                'target-text-margin-y': 0,
-                                'font-size': 14, // Aumentar tamaño de fuente para octetos
-                                'color': '#00008B' // Azul oscuro para octetos
-                            }
+                        ],
+                        layout: {
+                            name: 'cose', // Usamos 'cose' como layout predeterminado
+                            padding: 50,
+                            fit: true,
+                            componentSpacing: 150,
+                            nodeRepulsion: 400000,
+                            idealEdgeLength: 100,
+                            nodeOverlap: 20,
+                            animate: true
                         }
-                    ],
-                    layout: {
-                        name: 'cose',
-                        padding: 50,
-                        fit: true,
-                        componentSpacing: 150,
-                        nodeRepulsion: 500000,
-                        idealEdgeLength: 120,
-                        nodeOverlap: 30,
-                        animate: true
-                    }
-                });
+                    });
 
-                // Control de zoom
-                document.getElementById('zoom-slider').addEventListener('input', function() {
-                    cy.zoom(parseFloat(this.value));
-                });
+                    // Ocultar mensaje de carga
+                    document.getElementById('loading').style.display = 'none';
 
-                // Modal para cambiar color de AS con doble clic
-                cy.on('dblclick', 'node[!parent]', evt => {
-                    const node = evt.target;
-                    const pos = node.renderedPosition();
-                    showColorModal(pos.x, pos.y, node.id());
-                });
+                    // Control de zoom
+                    const zoomSlider = document.getElementById('zoom-slider');
+                    zoomSlider.addEventListener('input', function() {
+                        cy.zoom(parseFloat(this.value));
+                        cy.center();
+                    });
 
-                // Tooltips para nodos usando Popper.js directamente
-                const popperContainer = document.getElementById('popper-container');
-                cy.nodes().forEach(node => {
-                    const popperDiv = document.createElement('div');
-                    popperDiv.style.position = 'absolute';
-                    popperDiv.style.width = '1px';
-                    popperDiv.style.height = '1px';
-                    popperContainer.appendChild(popperDiv);
-
-                    const updatePosition = () => {
+                    // Modal para cambiar color de AS con doble clic
+                    cy.on('dblclick', 'node[!parent]', evt => {
+                        const node = evt.target;
                         const pos = node.renderedPosition();
-                        popperDiv.style.left = `${pos.x}px`;
-                        popperDiv.style.top = `${pos.y}px`;
-                    };
-                    updatePosition();
-
-                    cy.on('pan zoom resize', updatePosition);
-                    node.on('position', updatePosition);
-
-                    const tip = tippy(popperDiv, {
-                        content: `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`,
-                        theme: 'light',
-                        placement: 'top',
-                        trigger: 'manual',
+                        const modal = document.getElementById('color-modal');
+                        modal.style.left = `${pos.x + 10}px`;
+                        modal.style.top = `${pos.y - 10}px`;
+                        modal.classList.add('show');
+                        selectedAs = node.id();
+                        document.getElementById('color-input').value = node.style('background-color') || '#ddd';
                     });
 
-                    node.on('mouseover', () => tip.show());
-                    node.on('mouseout', () => tip.hide());
-                });
+                    // Tooltips para nodos
+                    const popperContainer = document.getElementById('popper-container');
+                    cy.nodes().forEach(node => {
+                        const popperDiv = document.createElement('div');
+                        popperDiv.style.position = 'absolute';
+                        popperDiv.style.width = '1px';
+                        popperDiv.style.height = '1px';
+                        popperContainer.appendChild(popperDiv);
 
-                // Tooltips para enlaces usando Popper.js directamente
-                cy.edges().forEach(edge => {
-                    const popperDiv = document.createElement('div');
-                    popperDiv.style.position = 'absolute';
-                    popperDiv.style.width = '1px';
-                    popperDiv.style.height = '1px';
-                    popperContainer.appendChild(popperDiv);
+                        const updatePosition = () => {
+                            const pos = node.renderedPosition();
+                            const pan = cy.pan();
+                            const zoom = cy.zoom();
+                            popperDiv.style.left = `${(pos.x - pan.x) / zoom}px`;
+                            popperDiv.style.top = `${(pos.y - pan.y) / zoom}px`;
+                        };
+                        updatePosition();
 
-                    const updatePosition = () => {
-                        const pos = edge.renderedMidpoint();
-                        popperDiv.style.left = `${pos.x}px`;
-                        popperDiv.style.top = `${pos.y}px`;
-                    };
-                    updatePosition();
+                        cy.on('pan zoom resize', updatePosition);
+                        node.on('position', updatePosition);
 
-                    cy.on('pan zoom resize', updatePosition);
-                    edge.on('position', updatePosition);
+                        const tip = tippy(popperDiv, {
+                            content: `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`,
+                            theme: 'light',
+                            placement: 'top',
+                            trigger: 'manual',
+                            maxWidth: 200
+                        });
 
-                    const tip = tippy(popperDiv, {
-                        content: `Subred: ${edge.data('weight')}`,
-                        theme: 'light',
-                        placement: 'top',
-                        trigger: 'manual',
+                        node.on('mouseover', () => tip.show());
+                        node.on('mouseout', () => tip.hide());
                     });
 
-                    edge.on('mouseover', () => tip.show());
-                    edge.on('mouseout', () => tip.hide());
-                });
+                    // Tooltips para enlaces
+                    cy.edges().forEach(edge => {
+                        const popperDiv = document.createElement('div');
+                        popperDiv.style.position = 'absolute';
+                        popperDiv.style.width = '1px';
+                        popperDiv.style.height = '1px';
+                        popperContainer.appendChild(popperDiv);
+
+                        const updatePosition = () => {
+                            const pos = edge.renderedMidpoint();
+                            const pan = cy.pan();
+                            const zoom = cy.zoom();
+                            popperDiv.style.left = `${(pos.x - pan.x) / zoom}px`;
+                            popperDiv.style.top = `${(pos.y - pan.y) / zoom}px`;
+                        };
+                        updatePosition();
+
+                        cy.on('pan zoom resize', updatePosition);
+                        edge.on('position', updatePosition);
+
+                        const tip = tippy(popperDiv, {
+                            content: `Subred: ${edge.data('weight') || 'Desconocida'}`,
+                            theme: 'light',
+                            placement: 'top',
+                            trigger: 'manual',
+                            maxWidth: 200
+                        });
+
+                        edge.on('mouseover', () => tip.show());
+                        edge.on('mouseout', () => tip.hide());
+                    });
+                } catch (error) {
+                    console.error('Error al inicializar el grafo:', error);
+                    alert(`Error al inicializar el mapa BGP: ${error.message}`);
+                    document.getElementById('loading').textContent = 'Error al cargar el mapa. Verifica bgp_graph.json.';
+                }
             })
             .catch(error => {
-                console.error('Error:', error);
-                alert('Error al cargar el mapa BGP: ' + error.message);
+                console.error('Error al cargar datos:', error);
+                document.getElementById('loading').textContent = `Error al cargar bgp_graph.json: ${error.message}`;
+            })
+            .finally(() => {
+                setTimeout(() => document.getElementById('loading').style.display = 'none', 3000);
             });
+
+        function applyColor() {
+            if (selectedAs) {
+                const newColor = document.getElementById('color-input').value;
+                cy.$id(selectedAs).style('background-color', newColor);
+                hideColorModal();
+            } else {
+                console.warn('No hay AS seleccionado para aplicar color.');
+            }
+        }
+
+        function hideColorModal() {
+            const modal = document.getElementById('color-modal');
+            modal.classList.remove('show');
+            setTimeout(() => modal.style.display = 'none', 300); // Animación de salida
+            selectedAs = null;
+        }
     </script>
 </body>
 </html>

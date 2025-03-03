@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Rutas BGP</title>
+    <!-- Bibliotecas externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script src="https://unpkg.com/@popperjs/core@2"></script>
+    <script src="https://unpkg.com/tippy.js@6"></script>
+    <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light.css"/>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        #cy {
+            width: 100%;
+            height: 80vh;
+            border: 1px solid #ccc;
+            background-color: #fff;
+        }
+        #color-modal {
+            width: 200px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+            position: absolute;
+            background: white;
+            display: none;
+        }
+        #color-modal input[type="color"] {
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        #color-modal button {
+            margin-top: 10px;
+            margin-right: 5px;
+            padding: 5px 10px;
+        }
+        #popper-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mapa de Rutas BGP</h1>
+    <div id="cy"></div>
+    <div>
+        <label for="zoom-slider">Zoom: </label>
+        <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1">
+    </div>
+    
+    <div id="color-modal">
+        <h4>Selecciona el color para este AS</h4>
+        <label for="color-input">Color: </label>
+        <input type="color" id="color-input">
+        <br><br>
+        <button onclick="applyColor()">Aplicar</button>
+        <button onclick="hideColorModal()">Cancelar</button>
+    </div>
+
+    <div id="popper-container"></div>
+
+    <script>
+        let selectedAs = null;
+        let cy;
+
+        function showColorModal(x, y, asId) {
+            selectedAs = asId;
+            const modal = document.getElementById('color-modal');
+            modal.style.left = `${x + 10}px`;
+            modal.style.top = `${y - 10}px`;
+            modal.style.display = 'block';
+            document.getElementById('color-input').value = cy.$id(asId).style('background-color') || '#ddd';
+        }
+
+        function hideColorModal() {
+            document.getElementById('color-modal').style.display = 'none';
+            selectedAs = null;
+        }
+
+        function applyColor() {
+            if (selectedAs) {
+                const newColor = document.getElementById('color-input').value;
+                cy.$id(selectedAs).style('background-color', newColor);
+            }
+            hideColorModal();
+        }
+
+        fetch('bgp_graph.json')
+            .then(response => {
+                if (!response.ok) throw new Error(`No se pudo cargar bgp_graph.json: ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
+                    throw new Error('Formato de bgp_graph.json inválido');
+                }
+
+                cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: { nodes: data.nodes, edges: data.edges },
+                    style: [
+                        {
+                            selector: 'node',
+                            style: {
+                                'label': 'data(label)',
+                                'text-valign': 'center',
+                                'text-halign': 'center',
+                                'font-size': 14,
+                                'color': '#000'
+                            }
+                        },
+                        {
+                            selector: 'node[parent]', // Routers dentro de AS
+                            style: {
+                                'background-color': '#00FF00', // Verde
+                                'shape': 'ellipse', // Círculo
+                                'width': 60, // Igualar ancho y alto para círculo
+                                'height': 60,
+                                'border-width': 2,
+                                'border-color': '#000'
+                            }
+                        },
+                        {
+                            selector: 'node[!parent]', // AS
+                            style: {
+                                'shape': 'rectangle',
+                                'background-color': '#ddd',
+                                'padding': 20,
+                                'font-size': 16,
+                                'text-valign': 'top',
+                                'text-halign': 'center',
+                                'text-margin-y': -10,
+                                'border-width': 2,
+                                'border-color': '#000',
+                                'border-style': 'dashed'
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'width': 3,
+                                'line-color': '#000',
+                                'curve-style': 'bezier',
+                                'label': 'data(weight)', // Subred (ej. 192.168.1.0/30)
+                                'font-size': 14, // Tamaño de fuente para subred
+                                'color': '#00008B', // Azul oscuro para contraste
+                                'text-background-color': '#FFFFFF', // Fondo blanco
+                                'text-background-opacity': 1, // Fondo opaco
+                                'text-background-padding': 2, // Espacio alrededor del texto
+                                'source-label': function(ele) {
+                                    const sourceNode = cy.$id(ele.data('source'));
+                                    const sourceIp = sourceNode.data('interfaces')[ele.data('sourceInterface')];
+                                    return `.${sourceIp.split('.')[3].split('/')[0]}`; // Último octeto del origen (ej. ".1")
+                                },
+                                'target-label': function(ele) {
+                                    const targetNode = cy.$id(ele.data('target'));
+                                    const targetIp = targetNode.data('interfaces')[ele.data('targetInterface')];
+                                    return `.${targetIp.split('.')[3].split('/')[0]}`; // Último octeto del destino (ej. ".2")
+                                },
+                                'source-text-margin-x': 20, // Separar etiqueta del nodo origen
+                                'target-text-margin-x': -20, // Separar etiqueta del nodo destino
+                                'source-text-margin-y': 0,
+                                'target-text-margin-y': 0,
+                                'font-size': 14, // Tamaño de fuente para octetos
+                                'color': '#00008B', // Azul oscuro para octetos
+                                'source-text-background-color': '#FFFFFF', // Fondo blanco para etiquetas de origen
+                                'target-text-background-color': '#FFFFFF', // Fondo blanco para etiquetas de destino
+                                'source-text-background-opacity': 1,
+                                'target-text-background-opacity': 1,
+                                'source-text-background-padding': 2,
+                                'target-text-background-padding': 2
+                            }
+                        }
+                    ],
+                    layout: {
+                        name: 'cose',
+                        padding: 50,
+                        fit: true,
+                        componentSpacing: 150,
+                        nodeRepulsion: 500000,
+                        idealEdgeLength: 120,
+                        nodeOverlap: 30,
+                        animate: true
+                    }
+                });
+
+                // Control de zoom
+                document.getElementById('zoom-slider').addEventListener('input', function() {
+                    cy.zoom(parseFloat(this.value));
+                });
+
+                // Modal para cambiar color de AS con doble clic
+                cy.on('dblclick', 'node[!parent]', evt => {
+                    const node = evt.target;
+                    const pos = node.renderedPosition();
+                    showColorModal(pos.x, pos.y, node.id());
+                });
+
+                // Tooltips para nodos
+                const popperContainer = document.getElementById('popper-container');
+                cy.nodes().forEach(node => {
+                    const popperDiv = document.createElement('div');
+                    popperDiv.style.position = 'absolute';
+                    popperDiv.style.width = '1px';
+                    popperDiv.style.height = '1px';
+                    popperContainer.appendChild(popperDiv);
+
+                    const updatePosition = () => {
+                        const pos = node.renderedPosition();
+                        popperDiv.style.left = `${pos.x}px`;
+                        popperDiv.style.top = `${pos.y}px`;
+                    };
+                    updatePosition();
+
+                    cy.on('pan zoom resize', updatePosition);
+                    node.on('position', updatePosition);
+
+                    const tip = tippy(popperDiv, {
+                        content: `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`,
+                        theme: 'light',
+                        placement: 'top',
+                        trigger: 'manual',
+                    });
+
+                    node.on('mouseover', () => tip.show());
+                    node.on('mouseout', () => tip.hide());
+                });
+
+                // Tooltips para enlaces
+                cy.edges().forEach(edge => {
+                    const popperDiv = document.createElement('div');
+                    popperDiv.style.position = 'absolute';
+                    popperDiv.style.width = '1px';
+                    popperDiv.style.height = '1px';
+                    popperContainer.appendChild(popperDiv);
+
+                    const updatePosition = () => {
+                        const pos = edge.renderedMidpoint();
+                        popperDiv.style.left = `${pos.x}px`;
+                        popperDiv.style.top = `${pos.y}px`;
+                    };
+                    updatePosition();
+
+                    cy.on('pan zoom resize', updatePosition);
+                    edge.on('position', updatePosition);
+
+                    const tip = tippy(popperDiv, {
+                        content: `Subred: ${edge.data('weight')}`,
+                        theme: 'light',
+                        placement: 'top',
+                        trigger: 'manual',
+                    });
+
+                    edge.on('mouseover', () => tip.show());
+                    edge.on('mouseout', () => tip.hide());
+                });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al cargar el mapa BGP: ' + error.message);
+            });
+    </script>
+</body>
+</html>
