@@ -109,6 +109,11 @@
                     console.warn(`Nodo ${node.data.id} tiene parent pero no interfaces`);
                 }
             });
+            data.edges.forEach(edge => {
+                if (!edge.data.sourceInterface || !edge.data.targetInterface) {
+                    console.warn(`Enlace entre ${edge.data.source} y ${edge.data.target} no especifica interfaces`);
+                }
+            });
             return true;
         }
 
@@ -120,6 +125,7 @@
             .then(data => {
                 try {
                     validateGraphData(data);
+                    
                     cy = cytoscape({
                         container: document.getElementById('cy'),
                         elements: { nodes: data.nodes, edges: data.edges },
@@ -129,7 +135,7 @@
                                 style: {
                                     'background-color': '#00FF00', // Verde
                                     'shape': 'ellipse', // Círculo
-                                    'width': 60, // Tamaño optimizado
+                                    'width': 60, // Tamaño optimizado para routers
                                     'height': 60,
                                     'label': 'data(label)',
                                     'text-valign': 'center',
@@ -162,7 +168,7 @@
                                     'width': 3,
                                     'line-color': '#000',
                                     'curve-style': 'bezier',
-                                    'label': 'data(weight)', // ID de red en el centro
+                                    'label': 'data(weight)', // Subred en el centro (e.g., "192.168.1.0/30")
                                     'font-size': 14,
                                     'color': '#00008B',
                                     'text-background-color': '#FFFFFF',
@@ -170,21 +176,18 @@
                                     'text-background-padding': 3,
                                     'source-label': ele => {
                                         const sourceNode = cy.$id(ele.data('source'));
-                                        if (!sourceNode) return '.?';
-                                        const sourceIp = sourceNode.data('interfaces')?.[ele.data('sourceInterface')];
-                                        return sourceIp ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
+                                        return `[${sourceNode.data('label')}]`; // Mostrar "R1", "R2", etc.
                                     },
                                     'target-label': ele => {
                                         const targetNode = cy.$id(ele.data('target'));
-                                        if (!targetNode) return '.?';
-                                        const targetIp = targetNode.data('interfaces')?.[ele.data('targetInterface')];
-                                        return targetIp ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
+                                        return `[${targetNode.data('label')}]`; // Mostrar "R2", "R3", etc.
                                     },
-                                    'source-text-offset': 30,
-                                    'target-text-offset': 30,
+                                    'source-text-offset': 30, // Posición cerca del router origen
+                                    'target-text-offset': 30, // Posición cerca del router destino
                                     'source-text-margin-y': -10,
                                     'target-text-margin-y': -10,
-                                    'font-size': 14,
+                                    'text-rotation': 'autorotate',
+                                    'font-size': 12,
                                     'color': '#00008B'
                                 }
                             }
@@ -195,7 +198,7 @@
                             fit: true,
                             componentSpacing: 150,
                             nodeRepulsion: 400000,
-                            idealEdgeLength: 100,
+                            idealEdgeLength: 200, // Aumentado para dar espacio a las etiquetas
                             nodeOverlap: 20,
                             animate: true
                         }
@@ -223,7 +226,7 @@
                         document.getElementById('color-input').value = node.style('background-color') || '#ddd';
                     });
 
-                    // Tooltips para nodos
+                    // Tooltips para nodos (routers y AS)
                     const popperContainer = document.getElementById('popper-container');
                     cy.nodes().forEach(node => {
                         const popperDiv = document.createElement('div');
@@ -244,8 +247,9 @@
                         cy.on('pan zoom resize', updatePosition);
                         node.on('position', updatePosition);
 
+                        const tooltipContent = `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`;
                         const tip = tippy(popperDiv, {
-                            content: `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`,
+                            content: tooltipContent,
                             theme: 'light',
                             placement: 'top',
                             trigger: 'manual',
@@ -276,8 +280,19 @@
                         cy.on('pan zoom resize', updatePosition);
                         edge.on('position', updatePosition);
 
+                        const sourceNode = cy.$id(edge.data('source'));
+                        const targetNode = cy.$id(edge.data('target'));
+                        const sourceInterface = edge.data('sourceInterface');
+                        const targetInterface = edge.data('targetInterface');
+                        const weight = edge.data('weight');
+                        const sourceIp = sourceNode.data('interfaces')?.[sourceInterface];
+                        const targetIp = targetNode.data('interfaces')?.[targetInterface];
+                        const sourceOctet = sourceIp ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
+                        const targetOctet = targetIp ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
+                        const tooltipContent = `Subred: ${weight || 'Desconocida'}<br>Origen: ${sourceNode.data('label')} (${sourceInterface}, ${sourceIp || 'N/A'}, ${sourceOctet})<br>Destino: ${targetNode.data('label')} (${targetInterface}, ${targetIp || 'N/A'}, ${targetOctet})`;
+
                         const tip = tippy(popperDiv, {
-                            content: `Subred: ${edge.data('weight') || 'Desconocida'}`,
+                            content: tooltipContent,
                             theme: 'light',
                             placement: 'top',
                             trigger: 'manual',

@@ -1,16 +1,91 @@
 {
     "nodes": [
-        {"data": {"id": "AS1", "label": "AS1"}},
-        {"data": {"id": "R1", "label": "R1", "parent": "AS1", "interfaces": {"eth0": "192.168.1.1/30"}}},
-        {"data": {"id": "R2", "label": "R2", "parent": "AS1", "interfaces": {"eth0": "192.168.2.1/30"}}},
-        {"data": {"id": "AS2", "label": "AS2"}},
-        {"data": {"id": "R3", "label": "R3", "parent": "AS2", "interfaces": {"eth0": "192.168.1.2/30", "eth1": "192.168.3.1/30"}}},
-        {"data": {"id": "AS3", "label": "AS3"}},
-        {"data": {"id": "R4", "label": "R4", "parent": "AS3", "interfaces": {"eth0": "192.168.2.2/30", "eth1": "192.168.3.2/30"}}}
+        {
+            "data": {
+                "id": "AS1",
+                "label": "AS1"
+            }
+        },
+        {
+            "data": {
+                "id": "R1",
+                "label": "R1",
+                "parent": "AS1",
+                "interfaces": {
+                    "eth1": "192.168.1.1/30"
+                }
+            }
+        },
+        {
+            "data": {
+                "id": "AS2",
+                "label": "AS2"
+            }
+        },
+        {
+            "data": {
+                "id": "R2",
+                "label": "R2",
+                "parent": "AS2",
+                "interfaces": {
+                    "eth2": "192.168.1.2/30"
+                }
+            }
+        },
+        {
+            "data": {
+                "id": "AS3",
+                "label": "AS3"
+            }
+        },
+        {
+            "data": {
+                "id": "R3",
+                "label": "R3",
+                "parent": "AS2",
+                "interfaces": {
+                    "eth0": "192.168.3.1/30"
+                }
+            }
+        },
+        {
+            "data": {
+                "id": "R4",
+                "label": "R4",
+                "parent": "AS3",
+                "interfaces": {
+                    "eth0": "192.168.3.2/30"
+                }
+            }
+        }
     ],
     "edges": [
-        {"data": {"source": "R1", "target": "R3", "weight": "192.168.1.0/30", "sourceInterface": "eth0", "targetInterface": "eth0"}},
-        {"data": {"source": "R2", "target": "R4", "weight": "192.168.2.0/30", "sourceInterface": "eth0", "targetInterface": "eth0"}},
-        {"data": {"source": "R3", "target": "R4", "weight": "192.168.3.0/30", "sourceInterface": "eth1", "targetInterface": "eth1"}}
+        {
+            "data": {
+                "source": "R1",
+                "target": "R2",
+                "weight": "192.168.1.0/30",
+                "sourceInterface": "eth1",
+                "targetInterface": "eth2"
+            }
+        },
+        {
+            "data": {
+                "source": "R2",
+                "target": "R3",
+                "weight": "192.168.2.0/30",
+                "sourceInterface": "eth0",
+                "targetInterface": "eth0"
+            }
+        },
+        {
+            "data": {
+                "source": "R3",
+                "target": "R4",
+                "weight": "192.168.3.0/30",
+                "sourceInterface": "eth0",
+                "targetInterface": "eth0"
+            }
+        }
     ]
 }
