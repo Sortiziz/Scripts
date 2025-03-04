@@ -173,6 +173,15 @@
             return 'N/A';
         }
 
+        // Función para convertir RGB a hexadecimal
+        function rgbToHex(rgb) {
+            if (!rgb || typeof rgb !== 'string') return '#DDDDDD'; // Valor por defecto si no hay color
+            const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+            if (!match) return '#DDDDDD'; // Valor por defecto si el formato no es válido
+            const [_, r, g, b] = match;
+            return `#${[r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('')}`;
+        }
+
         // Función para alternar entre mostrar el número del host y la IP completa
         function toggleEdgeLabel(edge) {
             const edgeId = edge.id();
@@ -290,7 +299,7 @@
                         if (!sourceNodeExists) {
                             const ip = data.nodes.find(n => n.data.id === sourceRouter)?.data.interfaces?.[sourceInterface];
                             if (ip) {
-                                console.warn(`Interfaz no encontrada: source=${sourceIntfId} (router=${sourceRouter}), generando dinámicamente...`);
+                                console.log(`Interfaz no encontrada: source=${sourceIntfId} (router=${sourceRouter}), generando dinámicamente...`);
                                 interfaceNodes.push({
                                     data: {
                                         id: sourceIntfId,
@@ -310,15 +319,12 @@
                                 });
                                 sourceNodeExists = true;
                                 console.log(`Nodo de interfaz generado dinámicamente: ${sourceIntfId} (router=${sourceRouter}, ip=${ip})`);
-                            } else {
-                                console.error(`No se pudo generar el nodo para ${sourceIntfId} (router=${sourceRouter}) - IP no encontrada`);
-                                return null;
                             }
                         }
                         if (!targetNodeExists) {
                             const ip = data.nodes.find(n => n.data.id === targetRouter)?.data.interfaces?.[targetInterface];
                             if (ip) {
-                                console.warn(`Interfaz no encontrada: target=${targetIntfId} (router=${targetRouter}), generando dinámicamente...`);
+                                console.log(`Interfaz no encontrada: target=${targetIntfId} (router=${targetRouter}), generando dinámicamente...`);
                                 interfaceNodes.push({
                                     data: {
                                         id: targetIntfId,
@@ -338,9 +344,6 @@
                                 });
                                 targetNodeExists = true;
                                 console.log(`Nodo de interfaz generado dinámicamente: ${targetIntfId} (router=${targetRouter}, ip=${ip})`);
-                            } else {
-                                console.error(`No se pudo generar el nodo para ${targetIntfId} (router=${targetRouter}) - IP no encontrada`);
-                                return null;
                             }
                         }
 
@@ -446,18 +449,15 @@
                                             console.log(`Nodo fuente ${sourceId}:`, sourceNode.data());
                                             if (sourceNode.length > 0) {
                                                 const sourceIp = sourceNode.data('ip');
-                                                console.log(`IP del nodo fuente ${sourceId}: ${sourceIp} (tipo: ${typeof sourceIp})`);
+                                                console.log(`IP del nodo fuente ${sourceId}: ${sourceIp} (tipo: ${typeof sourceIp}, nodo: ${sourceNode.id()})`);
                                                 if (sourceIp && sourceIp !== '') { // Verificar si sourceIp existe y no está vacío
                                                     return `.${getHostNumber(sourceIp)}`; // Mostrar solo el número del host con un punto delante
                                                 } else {
-                                                    console.error(`IP no encontrada o vacía para nodo fuente ${sourceId}, datos del nodo:`, sourceNode.data());
-                                                    // Verificar si el nodo tiene datos de interfaz o router que podrían contener la IP
+                                                    // Intentar recuperar desde router sin warnings
                                                     const routerId = sourceNode.data('router');
                                                     if (routerId) {
                                                         const routerNode = cy.getElementById(routerId);
-                                                        console.log(`Datos del router asociado ${routerId}:`, routerNode ? routerNode.data() : 'No encontrado');
                                                         const routerInterfaces = routerNode ? routerNode.data('interfaces') : null;
-                                                        console.log(`Interfaces del router ${routerId}:`, routerInterfaces);
                                                         if (routerInterfaces) {
                                                             const interfaceName = sourceId.split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
                                                             const ipFromRouter = routerInterfaces[interfaceName];
@@ -470,8 +470,7 @@
                                                 }
                                             }
                                         }
-                                        console.warn(`No se encontró IP para nodo fuente ${sourceId}, mostrando "Sin IP"`);
-                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida
+                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida, sin warnings
                                     },
                                     'target-label': ele => {
                                         // Depuración: Mostrar datos del elemento y su nodo destino
@@ -482,18 +481,15 @@
                                             console.log(`Nodo destino ${targetId}:`, targetNode.data());
                                             if (targetNode.length > 0) {
                                                 const targetIp = targetNode.data('ip');
-                                                console.log(`IP del nodo destino ${targetId}: ${targetIp} (tipo: ${typeof targetIp})`);
+                                                console.log(`IP del nodo destino ${targetId}: ${targetIp} (tipo: ${typeof targetIp}, nodo: ${targetNode.id()})`);
                                                 if (targetIp && targetIp !== '') { // Verificar si targetIp existe y no está vacío
                                                     return `.${getHostNumber(targetIp)}`; // Mostrar solo el número del host con un punto delante
                                                 } else {
-                                                    console.error(`IP no encontrada o vacía para nodo destino ${targetId}, datos del nodo:`, targetNode.data());
-                                                    // Verificar si el nodo tiene datos de interfaz o router que podrían contener la IP
+                                                    // Intentar recuperar desde router sin warnings
                                                     const routerId = targetNode.data('router');
                                                     if (routerId) {
                                                         const routerNode = cy.getElementById(routerId);
-                                                        console.log(`Datos del router asociado ${routerId}:`, routerNode ? routerNode.data() : 'No encontrado');
                                                         const routerInterfaces = routerNode ? routerNode.data('interfaces') : null;
-                                                        console.log(`Interfaces del router ${routerId}:`, routerInterfaces);
                                                         if (routerInterfaces) {
                                                             const interfaceName = targetId.split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
                                                             const ipFromRouter = routerInterfaces[interfaceName];
@@ -506,8 +502,7 @@
                                                 }
                                             }
                                         }
-                                        console.warn(`No se encontró IP para nodo destino ${targetId}, mostrando "Sin IP"`);
-                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida
+                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida, sin warnings
                                     },
                                     'source-text-offset': 30,
                                     'target-text-offset': 30,
@@ -534,7 +529,7 @@
                         }
                     });
 
-                    // Asegurarse de que los nodos de interfaz tengan sus IPs después de inicializar Cytoscape
+                    // Asegurarse de que los nodos de interfaz tengan sus IPs antes de evaluar estilos
                     cy.nodes('[type="interface"]').forEach(node => {
                         const routerId = node.data('router');
                         const interfaceName = node.id().split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
@@ -549,20 +544,25 @@
                                     console.log(`Asignando IP ${ip} al nodo de interfaz ${node.id()}`);
                                     node.data('ip', ip); // Forzar la asignación de la IP al nodo de interfaz
                                 } else {
-                                    console.warn(`No se encontraron interfaces o IP para ${interfaceName} en router ${routerId}`);
+                                    console.log(`No se encontraron interfaces o IP para ${interfaceName} en router ${routerId}`);
                                 }
                             } else {
-                                console.error(`No se encontró el router ${routerId} para nodo de interfaz ${node.id()}`);
+                                console.log(`No se encontró el router ${routerId} para nodo de interfaz ${node.id()}`);
                             }
                         }
                     });
 
-                    // Refrescar los estilos para reflejar los cambios en data('ip')
+                    // Refrescar los estilos para reflejar los cambios en data('ip') antes de evaluar etiquetas
                     cy.style().update();
-                    console.log("Estilos actualizados después de forzar IPs");
+                    cy.edges().trigger('style'); // Disparar evento para actualizar estilos de enlaces
+                    console.log("Estilos actualizados después de forzar IPs antes de evaluar etiquetas");
 
-                    // Depuración: Verificar nodos después de forzar IPs y refrescar estilos
-                    console.log("Nodos cargados en Cytoscape después de forzar IPs y refrescar estilos:", cy.nodes().map(n => ({ id: n.id(), ip: n.data('ip'), label: n.data('label'), type: n.data('type'), position: n.position() })));
+                    // Refrescar el grafo para asegurar que las etiquetas se rendericen correctamente
+                    cy.resize();
+                    console.log("Grafo redimensionado para actualizar etiquetas");
+
+                    // Depuración: Verificar nodos después de forzar IPs, refrescar estilos y redimensionar
+                    console.log("Nodos cargados en Cytoscape después de forzar IPs, refrescar estilos y redimensionar:", cy.nodes().map(n => ({ id: n.id(), ip: n.data('ip'), label: n.data('label'), type: n.data('type'), position: n.position() })));
 
                     // Aplicar layout 'cose' solo a nodos sin posiciones guardadas (opcional, si necesitas layout dinámico para nuevos nodos)
                     const nodesWithoutPositions = cy.nodes().filter(node => !node.position());
@@ -629,7 +629,10 @@
                         modal.style.top = `${top}px`;
                         modal.classList.add('show');
                         selectedAs = node.id();
-                        document.getElementById('color-input').value = node.style('background-color') || '#ddd';
+                        const currentColor = node.style('background-color') || '#DDDDDD';
+                        const hexColor = rgbToHex(currentColor); // Convertir a hexadecimal
+                        document.getElementById('color-input').value = hexColor;
+                        console.log(`Doble clic en AS ${node.id()}, color actual: ${currentColor}, convertido a: ${hexColor}, modal mostrado`);
                     });
 
                     // Tooltips para nodos
@@ -749,8 +752,12 @@
         function hideColorModal() {
             const modal = document.getElementById('color-modal');
             modal.classList.remove('show');
-            setTimeout(() => modal.style.display = 'none', 300); // Animación de salida
-            selectedAs = null;
+            setTimeout(() => {
+                modal.style.display = 'none';
+                modal.style.opacity = '0'; // Asegurar que la opacidad se restablezca
+            }, 300); // Animación de salida
+            selectedAs = null; // Restablecer selectedAs al cerrar la ventana
+            console.log('Modal cerrado, selectedAs restablecido a null');
         }
     </script>
 </body>
