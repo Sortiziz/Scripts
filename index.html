@@ -37,6 +37,7 @@
             opacity: 0;
         }
         #color-modal.show {
+            display: block;
             opacity: 1;
         }
         #color-modal input[type="color"] {
@@ -109,11 +110,6 @@
                     console.warn(`Nodo ${node.data.id} tiene parent pero no interfaces`);
                 }
             });
-            data.edges.forEach(edge => {
-                if (!edge.data.sourceInterface || !edge.data.targetInterface) {
-                    console.warn(`Enlace entre ${edge.data.source} y ${edge.data.target} no especifica interfaces`);
-                }
-            });
             return true;
         }
 
@@ -125,17 +121,51 @@
             .then(data => {
                 try {
                     validateGraphData(data);
-                    
+
+                    // Generar nodos de interfaz dinámicamente
+                    const interfaceNodes = [];
+                    const interfaceEdges = [];
+                    data.nodes.forEach(node => {
+                        if (node.data.interfaces) {
+                            const routerId = node.data.id;
+                            const parent = node.data.parent;
+                            Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
+                                const intfId = `${routerId}_${intfName}`;
+                                interfaceNodes.push({
+                                    data: {
+                                        id: intfId,
+                                        label: intfName,
+                                        type: 'interface',
+                                        router: routerId,
+                                        ip: ip,
+                                        parent: parent
+                                    }
+                                });
+                                interfaceEdges.push({
+                                    data: {
+                                        source: routerId,
+                                        target: intfId,
+                                        invisible: true
+                                    }
+                                });
+                            });
+                        }
+                    });
+
+                    // Combinar nodos y enlaces originales con los generados
+                    const allNodes = data.nodes.concat(interfaceNodes);
+                    const allEdges = data.edges.concat(interfaceEdges);
+
                     cy = cytoscape({
                         container: document.getElementById('cy'),
-                        elements: { nodes: data.nodes, edges: data.edges },
+                        elements: { nodes: allNodes, edges: allEdges },
                         style: [
                             {
-                                selector: 'node[parent]', // Routers dentro de AS
+                                selector: 'node[parent][!type]', // Routers dentro de AS
                                 style: {
-                                    'background-color': '#00FF00', // Verde
-                                    'shape': 'ellipse', // Círculo
-                                    'width': 60, // Tamaño optimizado para routers
+                                    'background-color': '#00FF00',
+                                    'shape': 'ellipse',
+                                    'width': 60,
                                     'height': 60,
                                     'label': 'data(label)',
                                     'text-valign': 'center',
@@ -143,7 +173,8 @@
                                     'font-size': 14,
                                     'color': '#000',
                                     'border-width': 2,
-                                    'border-color': '#000'
+                                    'border-color': '#000',
+                                    'z-index': 5
                                 }
                             },
                             {
@@ -159,7 +190,25 @@
                                     'text-margin-y': -10,
                                     'border-width': 2,
                                     'border-color': '#000',
-                                    'border-style': 'dashed'
+                                    'border-style': 'dashed',
+                                    'z-index': 1
+                                }
+                            },
+                            {
+                                selector: 'node[type="interface"]', // Interfaces
+                                style: {
+                                    'background-color': '#FFA500',
+                                    'shape': 'ellipse',
+                                    'width': 40,
+                                    'height': 40,
+                                    'label': 'data(label)',
+                                    'text-valign': 'center',
+                                    'text-halign': 'center',
+                                    'font-size': 12,
+                                    'color': '#000',
+                                    'border-width': 1,
+                                    'border-color': '#000',
+                                    'z-index': 10
                                 }
                             },
                             {
@@ -168,41 +217,60 @@
                                     'width': 3,
                                     'line-color': '#000',
                                     'curve-style': 'bezier',
-                                    'label': 'data(weight)', // Subred en el centro (e.g., "192.168.1.0/30")
+                                    'label': 'data(weight)', // Subred en el centro
                                     'font-size': 14,
                                     'color': '#00008B',
                                     'text-background-color': '#FFFFFF',
-                                    'text-background-opacity': 0.9, // Ligeramente translúcido
+                                    'text-background-opacity': 0.9,
                                     'text-background-padding': 3,
                                     'source-label': ele => {
                                         const sourceNode = cy.$id(ele.data('source'));
-                                        return `[${sourceNode.data('label')}]`; // Mostrar "R1", "R2", etc.
+                                        const sourceInterface = ele.data('sourceInterface');
+                                        const sourceIp = sourceInterface && sourceNode.data('interfaces') ? sourceNode.data('interfaces')[sourceInterface] || 'N/A' : 'N/A';
+                                        const octet = sourceIp !== 'N/A' ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
+                                        return sourceInterface ? `${sourceInterface} (${octet})` : '';
                                     },
                                     'target-label': ele => {
                                         const targetNode = cy.$id(ele.data('target'));
-                                        return `[${targetNode.data('label')}]`; // Mostrar "R2", "R3", etc.
+                                        const targetInterface = ele.data('targetInterface');
+                                        const targetIp = targetInterface && targetNode.data('interfaces') ? targetNode.data('interfaces')[targetInterface] || 'N/A' : 'N/A';
+                                        const octet = targetIp !== 'N/A' ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
+                                        return targetInterface ? `${targetInterface} (${octet})` : '';
                                     },
-                                    'source-text-offset': 30, // Posición cerca del router origen
-                                    'target-text-offset': 30, // Posición cerca del router destino
+                                    'source-text-offset': 30,
+                                    'target-text-offset': 30,
                                     'source-text-margin-y': -10,
                                     'target-text-margin-y': -10,
                                     'text-rotation': 'autorotate',
                                     'font-size': 12,
                                     'color': '#00008B'
                                 }
+                            },
+                            {
+                                selector: 'edge[invisible]',
+                                style: {
+                                    'width': 1,
+                                    'line-color': '#888',
+                                    'opacity': 0.2, // Hacer visible sutilmente para influir en el layout
+                                    'z-index': -1 // Mantener detrás de los enlaces visibles
+                                }
                             }
                         ],
                         layout: {
-                            name: 'cose', // Usamos 'cose' como layout predeterminado
-                            padding: 50,
+                            name: 'cose',
                             fit: true,
+                            padding: 50,
                             componentSpacing: 150,
                             nodeRepulsion: 400000,
-                            idealEdgeLength: 200, // Aumentado para dar espacio a las etiquetas
+                            idealEdgeLength: 200, // Aumentado para mejor posicionamiento
                             nodeOverlap: 20,
                             animate: true
                         }
                     });
+
+                    // Depuración
+                    console.log("Nodos cargados:", cy.nodes().map(n => n.data()));
+                    console.log("Enlaces cargados:", cy.edges().map(e => e.data()));
 
                     // Ocultar mensaje de carga
                     document.getElementById('loading').style.display = 'none';
@@ -219,14 +287,26 @@
                         const node = evt.target;
                         const pos = node.renderedPosition();
                         const modal = document.getElementById('color-modal');
-                        modal.style.left = `${pos.x + 10}px`;
-                        modal.style.top = `${pos.y - 10}px`;
+                        const modalWidth = modal.offsetWidth;
+                        const modalHeight = modal.offsetHeight;
+                        const canvasWidth = cy.width();
+                        const canvasHeight = cy.height();
+
+                        let left = pos.x + 10;
+                        let top = pos.y - 10;
+                        if (left + modalWidth > canvasWidth) left = canvasWidth - modalWidth;
+                        if (top + modalHeight > canvasHeight) top = canvasHeight - modalHeight;
+                        if (left < 0) left = 0;
+                        if (top < 0) top = 0;
+
+                        modal.style.left = `${left}px`;
+                        modal.style.top = `${top}px`;
                         modal.classList.add('show');
                         selectedAs = node.id();
                         document.getElementById('color-input').value = node.style('background-color') || '#ddd';
                     });
 
-                    // Tooltips para nodos (routers y AS)
+                    // Tooltips para nodos
                     const popperContainer = document.getElementById('popper-container');
                     cy.nodes().forEach(node => {
                         const popperDiv = document.createElement('div');
@@ -247,7 +327,14 @@
                         cy.on('pan zoom resize', updatePosition);
                         node.on('position', updatePosition);
 
-                        const tooltipContent = `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`;
+                        let tooltipContent;
+                        if (node.data('type') === 'interface') {
+                            const ip = node.data('ip') || 'N/A';
+                            const octet = ip !== 'N/A' ? `.${ip.split('.')[3].split('/')[0]}` : '.?';
+                            tooltipContent = `Interfaz: ${node.data('label')}<br>Router: ${node.data('router')}<br>IP: ${ip} (${octet})`;
+                        } else {
+                            tooltipContent = `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`;
+                        }
                         const tip = tippy(popperDiv, {
                             content: tooltipContent,
                             theme: 'light',
@@ -260,7 +347,7 @@
                         node.on('mouseout', () => tip.hide());
                     });
 
-                    // Tooltips para enlaces
+                    // Tooltips para enlaces con depuración
                     cy.edges().forEach(edge => {
                         const popperDiv = document.createElement('div');
                         popperDiv.style.position = 'absolute';
@@ -284,12 +371,18 @@
                         const targetNode = cy.$id(edge.data('target'));
                         const sourceInterface = edge.data('sourceInterface');
                         const targetInterface = edge.data('targetInterface');
-                        const weight = edge.data('weight');
-                        const sourceIp = sourceNode.data('interfaces')?.[sourceInterface];
-                        const targetIp = targetNode.data('interfaces')?.[targetInterface];
-                        const sourceOctet = sourceIp ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
-                        const targetOctet = targetIp ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
-                        const tooltipContent = `Subred: ${weight || 'Desconocida'}<br>Origen: ${sourceNode.data('label')} (${sourceInterface}, ${sourceIp || 'N/A'}, ${sourceOctet})<br>Destino: ${targetNode.data('label')} (${targetInterface}, ${targetIp || 'N/A'}, ${targetOctet})`;
+                        const sourceIp = sourceInterface && sourceNode.data('interfaces') ? sourceNode.data('interfaces')[sourceInterface] || 'N/A' : 'N/A';
+                        const targetIp = targetInterface && targetNode.data('interfaces') ? targetNode.data('interfaces')[targetInterface] || 'N/A' : 'N/A';
+                        const weight = edge.data('weight') || '';
+                        const sourceOctet = sourceIp !== 'N/A' ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
+                        const targetOctet = targetIp !== 'N/A' ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
+
+                        // Depuración en consola para verificar IPs
+                        console.log(`Enlace ${edge.data('source')} -> ${edge.data('target')}: sourceIp=${sourceIp}, targetIp=${targetIp}`);
+
+                        const tooltipContent = edge.data('invisible') ?
+                            `Conexión interna: ${sourceNode.data('label')} -> ${targetNode.data('label')}` :
+                            `Subred: ${weight}<br>Origen: ${sourceNode.data('label')} (${sourceInterface}, ${sourceIp}, ${sourceOctet})<br>Destino: ${targetNode.data('label')} (${targetInterface}, ${targetIp}, ${targetOctet})`;
 
                         const tip = tippy(popperDiv, {
                             content: tooltipContent,
@@ -319,7 +412,13 @@
         function applyColor() {
             if (selectedAs) {
                 const newColor = document.getElementById('color-input').value;
-                cy.$id(selectedAs).style('background-color', newColor);
+                const node = cy.$id(selectedAs);
+                node.style('background-color', newColor);
+                node.animate({
+                    style: { 'border-width': 4, 'border-color': '#FF0000' }
+                }, { duration: 500 }).animate({
+                    style: { 'border-width': 2, 'border-color': '#000' }
+                }, { duration: 500 });
                 hideColorModal();
             } else {
                 console.warn('No hay AS seleccionado para aplicar color.');
