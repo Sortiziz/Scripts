@@ -169,15 +169,28 @@
                     name: 'cose',
                     fit: true,
                     padding: 50,
-                    componentSpacing: 100,
+                    componentSpacing: 100, // Espacio general entre componentes (AS, routers, interfaces)
                     nodeRepulsion: 400000,
-                    idealEdgeLength: (edge) => edge.data('weight') === 10 ? 30 : 150, // Reducir idealEdgeLength para jerárquicos (routers-interfaces)
+                    idealEdgeLength: (edge) => {
+                        // Ajustar dinámicamente según el tipo de borde
+                        if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical' && edge.data('hierarchicalType') === 'routerToInterface') {
+                            // Bordes jerárquicos entre routers e interfaces
+                            console.log(`Ajustando idealEdgeLength para routerToInterface a: ${routerInterfaceEdgeLength}`);
+                            return routerInterfaceEdgeLength; // Usar valor personalizado para routers-interfaces
+                        } else if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical') {
+                            // Bordes jerárquicos entre AS y routers
+                            console.log(`Ajustando idealEdgeLength para asToRouter a: 50`);
+                            return 50; // Valor predeterminado para AS a routers (puedes ajustarlo también)
+                        }
+                        console.log(`Ajustando idealEdgeLength para otros bordes a: 150`);
+                        return 150; // Valor predeterminado para otros bordes (subredes)
+                    },
                     nodeOverlap: 20,
                     edgeElasticity: 100,
                     animate: true,
                     animationDuration: 1000
                 }).run();
-                console.log("Posiciones reseteadas al layout automático (cose)");
+                console.log("Posiciones reseteadas al layout automático (cose) con routerInterfaceEdgeLength:", routerInterfaceEdgeLength);
             }
         }
 
@@ -212,7 +225,7 @@
             };
             cy.nodes().forEach(node => {
                 positions[node.id()] = node.position();
-                const color = node.style('background-color') || '#DDDDDD'; // Obtener color del nodo
+                const color = node.style('background-color') || '#ddd'; // Obtener color del nodo (cambiado a #ddd para consistencia con AS)
                 colors.nodes[node.id()] = rgbToHex(color); // Convertir a hexadecimal
                 console.log(`Guardando posición y color para nodo ${node.id()}:`, { position: node.position(), color: colors.nodes[node.id()], data: node.data() });
             });
@@ -276,7 +289,8 @@
                             target: node.data.id,
                             weight: 10, // Peso mayor para priorizar jerarquía
                             type: 'hierarchical',
-                            invisible: true
+                            invisible: true,
+                            hierarchicalType: 'asToRouter' // Etiqueta para diferenciar
                         }
                     });
                 }
@@ -287,13 +301,17 @@
                             target: node.data.id,
                             weight: 10, // Peso mayor para priorizar jerarquía
                             type: 'hierarchical',
-                            invisible: true
+                            invisible: true,
+                            hierarchicalType: 'routerToInterface' // Etiqueta para diferenciar
                         }
                     });
                 }
             });
             return edges.concat(hierarchicalEdges);
         }
+
+        // Variable global para ajustar el espacio entre routers e interfaces
+        let routerInterfaceEdgeLength = 1; // Valor predeterminado, puedes modificarlo aquí o dinámicamente
 
         // Función para extraer el número del host (último octeto) de una IP
         function getHostNumber(ip) {
@@ -504,7 +522,7 @@
 
                     // Depuración: Mostrar todos los nodos combinados con sus IPs, colores y posiciones
                     console.log("Todos los nodos combinados:", allNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, type: n.data.type, color: n.data.color })));
-                    console.log("Todos los enlaces combinados (incluyendo jerárquicos):", allEdges.map(e => ({ data: e.data, color: e.data.color, type: e.data.type })));
+                    console.log("Todos los enlaces combinados (incluyendo jerárquicos):", allEdges.map(e => ({ data: e.data, color: e.data.color, type: e.data.type, hierarchicalType: e.data.hierarchicalType })));
 
                     // Cargar datos guardados (posiciones y colores) y aplicarlas a los nodos antes de inicializar Cytoscape
                     const nodesWithData = loadData(allNodes);
@@ -702,9 +720,22 @@
                             name: 'cose', // Usar cose para disposición automática lógica si no hay posiciones guardadas
                             fit: true,
                             padding: 50, // Aumentar padding para mayor espacio
-                            componentSpacing: 100, // Espacio entre componentes (AS, routers, interfaces)
+                            componentSpacing: 100, // Espacio general entre componentes (AS, routers, interfaces)
                             nodeRepulsion: 400000, // Aumentar repulsión para evitar superposición
-                            idealEdgeLength: (edge) => edge.data('weight') === 10 ? 30 : 150, // Reducir idealEdgeLength para jerárquicos (routers-interfaces)
+                            idealEdgeLength: (edge) => {
+                                // Ajustar dinámicamente según el tipo de borde
+                                if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical' && edge.data('hierarchicalType') === 'routerToInterface') {
+                                    // Bordes jerárquicos entre routers e interfaces
+                                    console.log(`Ajustando idealEdgeLength para routerToInterface a: ${routerInterfaceEdgeLength}`);
+                                    return routerInterfaceEdgeLength; // Usar valor personalizado para routers-interfaces
+                                } else if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical') {
+                                    // Bordes jerárquicos entre AS y routers
+                                    console.log(`Ajustando idealEdgeLength para asToRouter a: 50`);
+                                    return 50; // Valor predeterminado para AS a routers (puedes ajustarlo también)
+                                }
+                                console.log(`Ajustando idealEdgeLength para otros bordes a: 150`);
+                                return 150; // Valor predeterminado para otros bordes (subredes)
+                            },
                             nodeOverlap: 20,
                             edgeElasticity: 100,
                             animate: true,
