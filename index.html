@@ -16,12 +16,14 @@
             margin: 0;
             padding: 20px;
             background-color: #f0f0f0;
+            position: relative; /* Asegurar que el cuerpo sea el contenedor raíz para z-index */
         }
         #cy {
             width: 100%;
             height: 80vh;
             border: 1px solid #ccc;
             background-color: #fff;
+            position: relative; /* Asegurar que Cytoscape no interfiera con el z-index */
         }
         #color-modal {
             width: 250px;
@@ -29,7 +31,7 @@
             border: 1px solid #ccc;
             padding: 15px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            z-index: 1000;
+            z-index: 2000; /* Aumentar el z-index para priorizar sobre otros elementos */
             position: absolute;
             background: white;
             display: none;
@@ -37,8 +39,8 @@
             opacity: 0;
         }
         #color-modal.show {
-            display: block;
-            opacity: 1;
+            display: block !important; /* Forzar display block para evitar conflictos */
+            opacity: 1 !important; /* Forzar opacidad para asegurar visibilidad */
         }
         #color-modal input[type="color"] {
             vertical-align: middle;
@@ -62,6 +64,7 @@
             top: 0;
             left: 0;
             pointer-events: none;
+            z-index: 1500; /* Asegurar que esté por debajo del modal pero por encima de Cytoscape */
         }
         .loading {
             position: fixed;
@@ -70,9 +73,11 @@
             transform: translate(-50%, -50%);
             font-size: 18px;
             color: #333;
+            z-index: 1000; /* Asegurar que esté visible sobre todo */
         }
         #controls {
             margin-top: 10px;
+            z-index: 1100; /* Asegurar que los controles estén visibles */
         }
         #save-positions-btn {
             padding: 8px 16px;
@@ -113,6 +118,7 @@
         let cy;
         let selectedAs = null;
         let edgeLabelStates = new Map(); // Mapa para rastrear el estado de las etiquetas (host o IP completa)
+        let isModalClosing = false; // Flag para evitar conflictos de timing con el modal
 
         // Mostrar mensaje de carga
         document.getElementById('loading').style.display = 'block';
@@ -529,13 +535,22 @@
                         }
                     });
 
+                    // Depuración: Verificar nodos AS después de inicializar Cytoscape
+                    console.log("Nodos AS disponibles después de inicializar:", cy.nodes('[!parent]').map(node => ({
+                        id: node.id(),
+                        data: node.data(),
+                        position: node.position(),
+                        style: node.style()
+                    })));
+
                     // Asegurarse de que los nodos de interfaz tengan sus IPs antes de evaluar estilos
                     cy.nodes('[type="interface"]').forEach(node => {
                         const routerId = node.data('router');
                         const interfaceName = node.id().split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
-                        console.log(`Verificando nodo de interfaz ${node.id()}, router: ${routerId}, interfaz: ${interfaceName}`);
+                        console.log(`Verificando nodo de interfaz ${node.id()}, router: ${routerId}, interfaz: ${interfaceName}, data:`, node.data());
                         if (routerId) {
                             const routerNode = cy.getElementById(routerId);
+                            console.log(`Router asociado ${routerId}:`, routerNode ? routerNode.data() : 'No encontrado');
                             if (routerNode) {
                                 const routerInterfaces = routerNode.data('interfaces');
                                 console.log(`Interfaces del router ${routerId}:`, routerInterfaces);
@@ -562,7 +577,14 @@
                     console.log("Grafo redimensionado para actualizar etiquetas");
 
                     // Depuración: Verificar nodos después de forzar IPs, refrescar estilos y redimensionar
-                    console.log("Nodos cargados en Cytoscape después de forzar IPs, refrescar estilos y redimensionar:", cy.nodes().map(n => ({ id: n.id(), ip: n.data('ip'), label: n.data('label'), type: n.data('type'), position: n.position() })));
+                    console.log("Nodos cargados en Cytoscape después de forzar IPs, refrescar estilos y redimensionar:", cy.nodes().map(n => ({
+                        id: n.id(),
+                        ip: n.data('ip'),
+                        label: n.data('label'),
+                        type: n.data('type'),
+                        position: n.position(),
+                        style: n.style()
+                    })));
 
                     // Aplicar layout 'cose' solo a nodos sin posiciones guardadas (opcional, si necesitas layout dinámico para nuevos nodos)
                     const nodesWithoutPositions = cy.nodes().filter(node => !node.position());
@@ -586,8 +608,18 @@
                     });
 
                     // Depuración
-                    console.log("Nodos cargados en Cytoscape después del layout:", cy.nodes().map(n => ({ id: n.id(), ip: n.data('ip'), label: n.data('label'), type: n.data('type'), position: n.position() })));
-                    console.log("Enlaces cargados en Cytoscape:", cy.edges().map(e => e.data()));
+                    console.log("Nodos cargados en Cytoscape después del layout:", cy.nodes().map(n => ({
+                        id: n.id(),
+                        ip: n.data('ip'),
+                        label: n.data('label'),
+                        type: n.data('type'),
+                        position: n.position(),
+                        style: n.style()
+                    })));
+                    console.log("Enlaces cargados en Cytoscape:", cy.edges().map(e => ({
+                        data: e.data(),
+                        style: e.style()
+                    })));
 
                     // Añadir evento de clic para toggle en los enlaces visibles
                     cy.edges('[!invisible]').on('click', evt => {
@@ -610,13 +642,38 @@
 
                     // Modal para cambiar color de AS con doble clic
                     cy.on('dblclick', 'node[!parent]', evt => {
+                        console.log('Evento de doble clic detectado, isModalClosing:', isModalClosing, 'selectedAs:', selectedAs);
+                        if (isModalClosing) {
+                            console.log('Doble clic ignorado, el modal está cerrándose');
+                            return; // Ignorar doble clic si el modal está cerrándose
+                        }
+
                         const node = evt.target;
+                        console.log('Nodo clicado:', {
+                            id: node.id(),
+                            data: node.data(),
+                            position: node.position(),
+                            style: node.style(),
+                            renderedPosition: node.renderedPosition()
+                        });
                         const pos = node.renderedPosition();
                         const modal = document.getElementById('color-modal');
-                        const modalWidth = modal.offsetWidth;
-                        const modalHeight = modal.offsetHeight;
+                        console.log('Modal DOM antes de mostrar:', {
+                            id: modal.id,
+                            display: window.getComputedStyle(modal).display,
+                            opacity: window.getComputedStyle(modal).opacity,
+                            className: modal.className,
+                            offsetWidth: modal.offsetWidth,
+                            offsetHeight: modal.offsetHeight,
+                            zIndex: window.getComputedStyle(modal).zIndex,
+                            position: window.getComputedStyle(modal).position
+                        });
+
+                        const modalWidth = modal.offsetWidth || 250; // Usar 250px si offsetWidth es 0
+                        const modalHeight = modal.offsetHeight || 180; // Usar 180px si offsetHeight es 0
                         const canvasWidth = cy.width();
                         const canvasHeight = cy.height();
+                        console.log('Dimensiones del canvas:', { canvasWidth, canvasHeight });
 
                         let left = pos.x + 10;
                         let top = pos.y - 10;
@@ -625,14 +682,39 @@
                         if (left < 0) left = 0;
                         if (top < 0) top = 0;
 
+                        console.log('Posición calculada para el modal:', { left, top });
+
+                        // Forzar la visibilidad del modal antes de la transición
+                        modal.style.display = 'block';
+                        modal.style.opacity = '0'; // Iniciar desde opacidad 0 para la transición
                         modal.style.left = `${left}px`;
                         modal.style.top = `${top}px`;
-                        modal.classList.add('show');
-                        selectedAs = node.id();
-                        const currentColor = node.style('background-color') || '#DDDDDD';
-                        const hexColor = rgbToHex(currentColor); // Convertir a hexadecimal
-                        document.getElementById('color-input').value = hexColor;
-                        console.log(`Doble clic en AS ${node.id()}, color actual: ${currentColor}, convertido a: ${hexColor}, modal mostrado`);
+
+                        // Usar setTimeout para dar tiempo al navegador a procesar los cambios
+                        setTimeout(() => {
+                            modal.classList.add('show');
+                            selectedAs = node.id();
+                            const currentColor = node.style('background-color') || '#DDDDDD';
+                            const hexColor = rgbToHex(currentColor); // Convertir a hexadecimal
+                            document.getElementById('color-input').value = hexColor;
+                            console.log(`Doble clic en AS ${node.id()}, color actual: ${currentColor}, convertido a: ${hexColor}, modal mostrado, isModalClosing: ${isModalClosing}, selectedAs: ${selectedAs}`);
+                            console.log('Estado del modal después de mostrar:', {
+                                display: window.getComputedStyle(modal).display,
+                                opacity: window.getComputedStyle(modal).opacity,
+                                className: modal.className,
+                                offsetWidth: modal.offsetWidth,
+                                offsetHeight: modal.offsetHeight,
+                                zIndex: window.getComputedStyle(modal).zIndex,
+                                position: window.getComputedStyle(modal).position
+                            });
+                        }, 0); // Retraso mínimo para permitir la actualización del DOM
+
+                        // Asegurar que el modal se muestre incluso si la transición falla
+                        if (!modal.classList.contains('show')) {
+                            console.warn('El modal no se mostró automáticamente, forzando visibilidad');
+                            modal.classList.add('show');
+                            modal.style.opacity = '1';
+                        }
                     });
 
                     // Tooltips para nodos
@@ -737,6 +819,11 @@
             if (selectedAs) {
                 const newColor = document.getElementById('color-input').value;
                 const node = cy.getElementById(selectedAs); // Usar getElementById en lugar de $id
+                console.log(`Aplicando color ${newColor} al AS ${selectedAs}, nodo actual:`, {
+                    data: node.data(),
+                    style: node.style(),
+                    renderedPosition: node.renderedPosition()
+                });
                 node.style('background-color', newColor);
                 node.animate({
                     style: { 'border-width': 4, 'border-color': '#FF0000' }
@@ -751,13 +838,36 @@
 
         function hideColorModal() {
             const modal = document.getElementById('color-modal');
+            console.log('Iniciando cierre del modal, estado actual:', {
+                isModalClosing,
+                selectedAs,
+                display: window.getComputedStyle(modal).display,
+                opacity: window.getComputedStyle(modal).opacity,
+                className: modal.className,
+                offsetWidth: modal.offsetWidth,
+                offsetHeight: modal.offsetHeight,
+                zIndex: window.getComputedStyle(modal).zIndex,
+                position: window.getComputedStyle(modal).position
+            });
+            isModalClosing = true; // Indicar que el modal está cerrándose
             modal.classList.remove('show');
             setTimeout(() => {
                 modal.style.display = 'none';
                 modal.style.opacity = '0'; // Asegurar que la opacidad se restablezca
+                isModalClosing = false; // Restablecer el flag después de cerrar
+                selectedAs = null; // Restablecer selectedAs al cerrar la ventana
+                console.log('Modal cerrado, estado final:', {
+                    isModalClosing,
+                    selectedAs,
+                    display: window.getComputedStyle(modal).display,
+                    opacity: window.getComputedStyle(modal).opacity,
+                    className: modal.className,
+                    offsetWidth: modal.offsetWidth,
+                    offsetHeight: modal.offsetHeight,
+                    zIndex: window.getComputedStyle(modal).zIndex,
+                    position: window.getComputedStyle(modal).position
+                });
             }, 300); // Animación de salida
-            selectedAs = null; // Restablecer selectedAs al cerrar la ventana
-            console.log('Modal cerrado, selectedAs restablecido a null');
         }
     </script>
 </body>
