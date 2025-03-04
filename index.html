@@ -71,14 +71,30 @@
             font-size: 18px;
             color: #333;
         }
+        #controls {
+            margin-top: 10px;
+        }
+        #save-positions-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #28a745;
+            color: white;
+            margin-right: 10px;
+        }
+        #save-positions-btn:hover {
+            background-color: #218838;
+        }
     </style>
 </head>
 <body>
     <h1>Mapa de Rutas BGP</h1>
     <div id="cy"></div>
-    <div>
+    <div id="controls">
         <label for="zoom-slider">Zoom: </label>
         <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1">
+        <button id="save-positions-btn">Guardar Posiciones</button>
     </div>
     
     <div id="color-modal">
@@ -113,6 +129,49 @@
             return true;
         }
 
+        // Función para guardar posiciones manualmente en localStorage
+        function savePositionsManually() {
+            const positions = {};
+            cy.nodes().forEach(node => {
+                positions[node.id()] = node.position();
+                console.log(`Guardando posición para nodo ${node.id()}:`, node.position(), 'Datos del nodo:', node.data());
+            });
+            localStorage.setItem('bgpNodePositions', JSON.stringify(positions));
+            alert('Posiciones guardadas correctamente.');
+            console.log("Posiciones guardadas:", positions);
+        }
+
+        // Función para cargar posiciones desde localStorage y preparar nodos con posiciones
+        function loadPositions(nodesData) {
+            const savedPositions = localStorage.getItem('bgpNodePositions');
+            console.log("Posiciones guardadas en localStorage:", savedPositions);
+            if (savedPositions) {
+                const positions = JSON.parse(savedPositions);
+                console.log("Posiciones parseadas:", positions);
+                return nodesData.map(node => {
+                    console.log(`Verificando posición para nodo ${node.data.id}, datos actuales:`, node.data);
+                    if (positions[node.data.id]) {
+                        console.log(`Aplicando posición a nodo ${node.data.id}:`, positions[node.data.id], 'Datos antes de aplicar posición:', node.data);
+                        return { ...node, position: positions[node.data.id] };
+                    }
+                    console.log(`No se encontró posición guardada para nodo ${node.data.id}, datos actuales:`, node.data);
+                    return node;
+                });
+            }
+            console.log("No hay posiciones guardadas en localStorage");
+            return nodesData;
+        }
+
+        // Función para extraer el número del host (último octeto) de una IP
+        function getHostNumber(ip) {
+            if (!ip || typeof ip !== 'string') return 'N/A';
+            const parts = ip.split('.');
+            if (parts.length >= 4) {
+                return parts[3].split('/')[0]; // Extrae solo el último octeto antes de "/"
+            }
+            return 'N/A';
+        }
+
         fetch('bgp_graph.json')
             .then(response => {
                 if (!response.ok) throw new Error(`No se pudo cargar bgp_graph.json: ${response.status}`);
@@ -122,6 +181,9 @@
                 try {
                     validateGraphData(data);
 
+                    // Depuración: Mostrar datos originales del JSON
+                    console.log("Datos originales del JSON:", data);
+
                     // Generar nodos de interfaz dinámicamente con IDs únicos
                     const interfaceNodes = [];
                     const interfaceEdges = [];
@@ -129,15 +191,17 @@
                         if (node.data.interfaces) {
                             const routerId = node.data.id;
                             const parent = node.data.parent;
+                            console.log(`Procesando nodo router: ${routerId}, interfaces:`, node.data.interfaces);
                             Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
                                 const intfId = `${routerId}_${intfName}`; // Usar formato único: router_interfaz (e.g., "R2_eth0")
+                                console.log(`Generando nodo de interfaz: ${intfId}, IP: ${ip}`);
                                 interfaceNodes.push({
                                     data: {
                                         id: intfId,
                                         label: intfName, // Mantén el nombre original para la visualización (e.g., "eth0")
                                         type: 'interface',
                                         router: routerId,
-                                        ip: ip,
+                                        ip: ip, // Asegurarse de que el campo 'ip' esté explícitamente asignado
                                         parent: parent
                                     }
                                 });
@@ -151,6 +215,9 @@
                             });
                         }
                     });
+
+                    // Depuración: Mostrar nodos de interfaz generados con sus datos completos
+                    console.log("Nodos de interfaz generados:", interfaceNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label })));
 
                     // Transformar enlaces de routers a interfaces con IDs únicos
                     const transformedEdges = data.edges.map(edge => {
@@ -170,6 +237,12 @@
                         // Verificar que las interfaces existan antes de crear el enlace
                         let sourceNodeExists = interfaceNodes.some(n => n.data.id === sourceIntfId && n.data.router === sourceRouter);
                         let targetNodeExists = interfaceNodes.some(n => n.data.id === targetIntfId && n.data.router === targetRouter);
+
+                        // Depuración: Verificar existencia de nodos y sus IPs
+                        const sourceNode = interfaceNodes.find(n => n.data.id === sourceIntfId);
+                        const targetNode = interfaceNodes.find(n => n.data.id === targetIntfId);
+                        console.log(`Nodo fuente ${sourceIntfId} existe: ${sourceNodeExists}, IP: ${sourceNode ? sourceNode.data.ip : 'No encontrado'}`);
+                        console.log(`Nodo destino ${targetIntfId} existe: ${targetNodeExists}, IP: ${targetNode ? targetNode.data.ip : 'No encontrado'}`);
 
                         // Generar dinámicamente nodos de interfaz faltantes
                         if (!sourceNodeExists) {
@@ -238,13 +311,26 @@
                         };
                     }).filter(edge => edge !== null); // Filtrar enlaces nulos
 
+                    // Depuración: Mostrar enlaces transformados
+                    console.log("Enlaces transformados:", transformedEdges);
+
                     // Combinar nodos y enlaces originales con los generados
                     const allNodes = data.nodes.concat(interfaceNodes);
                     const allEdges = interfaceEdges.concat(transformedEdges);
 
+                    // Depuración: Mostrar todos los nodos combinados con sus IPs
+                    console.log("Todos los nodos combinados:", allNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, type: n.data.type })));
+                    console.log("Todos los enlaces combinados:", allEdges);
+
+                    // Cargar posiciones guardadas y aplicarlas a los nodos antes de inicializar Cytoscape
+                    const nodesWithPositions = loadPositions(allNodes);
+
+                    // Depuración: Mostrar nodos con posiciones y verificar IPs después de cargar posiciones
+                    console.log("Nodos con posiciones aplicadas:", nodesWithPositions.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, type: n.data.type, position: n.position })));
+
                     cy = cytoscape({
                         container: document.getElementById('cy'),
-                        elements: { nodes: allNodes, edges: allEdges },
+                        elements: { nodes: nodesWithPositions, edges: allEdges },
                         style: [
                             {
                                 selector: 'node[parent][!type]', // Routers dentro de AS
@@ -310,16 +396,76 @@
                                     'text-background-opacity': 0.9,
                                     'text-background-padding': 3,
                                     'source-label': ele => {
-                                        const sourceNode = cy.$id(ele.data('source'));
-                                        const sourceIp = sourceNode.data('ip') || 'N/A';
-                                        const octet = sourceIp !== 'N/A' ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
-                                        return `${sourceNode.data('label')} (${octet})`;
+                                        // Depuración: Mostrar datos del elemento y su nodo fuente
+                                        console.log(`Evaluando source-label para enlace: ${JSON.stringify(ele.data())}`);
+                                        const sourceId = ele.data('source');
+                                        if (cy && cy.getElementById) { // Verificar que cy está inicializado
+                                            const sourceNode = cy.getElementById(sourceId);
+                                            console.log(`Nodo fuente ${sourceId}:`, sourceNode.data());
+                                            if (sourceNode.length > 0) {
+                                                const sourceIp = sourceNode.data('ip');
+                                                console.log(`IP del nodo fuente ${sourceId}: ${sourceIp} (tipo: ${typeof sourceIp})`);
+                                                if (sourceIp && sourceIp !== '') { // Verificar si sourceIp existe y no está vacío
+                                                    return getHostNumber(sourceIp); // Mostrar solo el número del host
+                                                } else {
+                                                    console.error(`IP no encontrada o vacía para nodo fuente ${sourceId}, datos del nodo:`, sourceNode.data());
+                                                    // Verificar si el nodo tiene datos de interfaz o router que podrían contener la IP
+                                                    const routerId = sourceNode.data('router');
+                                                    if (routerId) {
+                                                        const routerNode = cy.getElementById(routerId);
+                                                        console.log(`Datos del router asociado ${routerId}:`, routerNode ? routerNode.data() : 'No encontrado');
+                                                        const routerInterfaces = routerNode ? routerNode.data('interfaces') : null;
+                                                        console.log(`Interfaces del router ${routerId}:`, routerInterfaces);
+                                                        if (routerInterfaces) {
+                                                            const interfaceName = sourceId.split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
+                                                            const ipFromRouter = routerInterfaces[interfaceName];
+                                                            console.log(`IP encontrada en router para interfaz ${interfaceName}: ${ipFromRouter}`);
+                                                            if (ipFromRouter && ipFromRouter !== '') {
+                                                                return getHostNumber(ipFromRouter); // Mostrar solo el número del host
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        console.warn(`No se encontró IP para nodo fuente ${sourceId}, mostrando "Sin IP"`);
+                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida
                                     },
                                     'target-label': ele => {
-                                        const targetNode = cy.$id(ele.data('target'));
-                                        const targetIp = targetNode.data('ip') || 'N/A';
-                                        const octet = targetIp !== 'N/A' ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
-                                        return `${targetNode.data('label')} (${octet})`;
+                                        // Depuración: Mostrar datos del elemento y su nodo destino
+                                        console.log(`Evaluando target-label para enlace: ${JSON.stringify(ele.data())}`);
+                                        const targetId = ele.data('target');
+                                        if (cy && cy.getElementById) { // Verificar que cy está inicializado
+                                            const targetNode = cy.getElementById(targetId);
+                                            console.log(`Nodo destino ${targetId}:`, targetNode.data());
+                                            if (targetNode.length > 0) {
+                                                const targetIp = targetNode.data('ip');
+                                                console.log(`IP del nodo destino ${targetId}: ${targetIp} (tipo: ${typeof targetIp})`);
+                                                if (targetIp && targetIp !== '') { // Verificar si targetIp existe y no está vacío
+                                                    return getHostNumber(targetIp); // Mostrar solo el número del host
+                                                } else {
+                                                    console.error(`IP no encontrada o vacía para nodo destino ${targetId}, datos del nodo:`, targetNode.data());
+                                                    // Verificar si el nodo tiene datos de interfaz o router que podrían contener la IP
+                                                    const routerId = targetNode.data('router');
+                                                    if (routerId) {
+                                                        const routerNode = cy.getElementById(routerId);
+                                                        console.log(`Datos del router asociado ${routerId}:`, routerNode ? routerNode.data() : 'No encontrado');
+                                                        const routerInterfaces = routerNode ? routerNode.data('interfaces') : null;
+                                                        console.log(`Interfaces del router ${routerId}:`, routerInterfaces);
+                                                        if (routerInterfaces) {
+                                                            const interfaceName = targetId.split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
+                                                            const ipFromRouter = routerInterfaces[interfaceName];
+                                                            console.log(`IP encontrada en router para interfaz ${interfaceName}: ${ipFromRouter}`);
+                                                            if (ipFromRouter && ipFromRouter !== '') {
+                                                                return getHostNumber(ipFromRouter); // Mostrar solo el número del host
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        console.warn(`No se encontró IP para nodo destino ${targetId}, mostrando "Sin IP"`);
+                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida
                                     },
                                     'source-text-offset': 30,
                                     'target-text-offset': 30,
@@ -340,16 +486,56 @@
                             }
                         ],
                         layout: {
-                            name: 'cose',
+                            name: 'preset', // Cambiamos a 'preset' para respetar posiciones manuales
                             fit: true,
-                            padding: 30, // Reducido para un ajuste más cercano
-                            componentSpacing: 50, // Reducido para minimizar la separación entre componentes
-                            nodeRepulsion: 200000, // Reducido para acercar los nodos
-                            idealEdgeLength: 80, // Reducido para que los nodos estén más cerca
-                            nodeOverlap: 10, // Ajustado para evitar superposiciones y mantener compacto
-                            animate: true
+                            padding: 30 // Reducido para un ajuste más cercano
                         }
                     });
+
+                    // Asegurarse de que los nodos de interfaz tengan sus IPs después de inicializar Cytoscape
+                    cy.nodes('[type="interface"]').forEach(node => {
+                        const routerId = node.data('router');
+                        const interfaceName = node.id().split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
+                        console.log(`Verificando nodo de interfaz ${node.id()}, router: ${routerId}, interfaz: ${interfaceName}`);
+                        if (routerId) {
+                            const routerNode = cy.getElementById(routerId);
+                            if (routerNode) {
+                                const routerInterfaces = routerNode.data('interfaces');
+                                console.log(`Interfaces del router ${routerId}:`, routerInterfaces);
+                                if (routerInterfaces && routerInterfaces[interfaceName]) {
+                                    const ip = routerInterfaces[interfaceName];
+                                    console.log(`Asignando IP ${ip} al nodo de interfaz ${node.id()}`);
+                                    node.data('ip', ip); // Forzar la asignación de la IP al nodo de interfaz
+                                } else {
+                                    console.warn(`No se encontraron interfaces o IP para ${interfaceName} en router ${routerId}`);
+                                }
+                            } else {
+                                console.error(`No se encontró el router ${routerId} para nodo de interfaz ${node.id()}`);
+                            }
+                        }
+                    });
+
+                    // Refrescar los estilos para reflejar los cambios en data('ip')
+                    cy.style().update();
+                    console.log("Estilos actualizados después de forzar IPs");
+
+                    // Depuración: Verificar nodos después de forzar IPs y refrescar estilos
+                    console.log("Nodos cargados en Cytoscape después de forzar IPs y refrescar estilos:", cy.nodes().map(n => ({ id: n.id(), ip: n.data('ip'), label: n.data('label'), type: n.data('type'), position: n.position() })));
+
+                    // Aplicar layout 'cose' solo a nodos sin posiciones guardadas (opcional, si necesitas layout dinámico para nuevos nodos)
+                    const nodesWithoutPositions = cy.nodes().filter(node => !node.position());
+                    if (nodesWithoutPositions.length > 0) {
+                        nodesWithoutPositions.layout({
+                            name: 'cose',
+                            fit: true,
+                            padding: 30,
+                            componentSpacing: 50,
+                            nodeRepulsion: 200000,
+                            idealEdgeLength: 80,
+                            nodeOverlap: 10,
+                            animate: true
+                        }).run();
+                    }
 
                     // Establecer un zoom inicial más cercano después de cargar
                     cy.on('layoutstop', () => {
@@ -358,8 +544,8 @@
                     });
 
                     // Depuración
-                    console.log("Nodos cargados:", cy.nodes().map(n => n.data()));
-                    console.log("Enlaces cargados:", cy.edges().map(e => e.data()));
+                    console.log("Nodos cargados en Cytoscape después del layout:", cy.nodes().map(n => ({ id: n.id(), ip: n.data('ip'), label: n.data('label'), type: n.data('type'), position: n.position() })));
+                    console.log("Enlaces cargados en Cytoscape:", cy.edges().map(e => e.data()));
 
                     // Ocultar mensaje de carga
                     document.getElementById('loading').style.display = 'none';
@@ -370,6 +556,9 @@
                         cy.zoom(parseFloat(this.value));
                         cy.center();
                     });
+
+                    // Botón para guardar posiciones manualmente
+                    document.getElementById('save-positions-btn').addEventListener('click', savePositionsManually);
 
                     // Modal para cambiar color de AS con doble clic
                     cy.on('dblclick', 'node[!parent]', evt => {
@@ -419,8 +608,8 @@
                         let tooltipContent;
                         if (node.data('type') === 'interface') {
                             const ip = node.data('ip') || 'N/A';
-                            const octet = ip !== 'N/A' ? `.${ip.split('.')[3].split('/')[0]}` : '.?';
-                            tooltipContent = `Interfaz: ${node.data('label')}<br>Router: ${node.data('router')}<br>IP: ${ip} (${octet})`;
+                            const hostNumber = getHostNumber(ip); // Usar solo el número del host
+                            tooltipContent = `Interfaz: ${node.data('label')}<br>Router: ${node.data('router')}<br>IP: ${ip} (Host: ${hostNumber})`;
                         } else {
                             tooltipContent = `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`;
                         }
@@ -456,17 +645,17 @@
                         cy.on('pan zoom resize', updatePosition);
                         edge.on('position', updatePosition);
 
-                        const sourceNode = cy.$id(edge.data('source'));
-                        const targetNode = cy.$id(edge.data('target'));
+                        const sourceNode = cy.getElementById(edge.data('source'));
+                        const targetNode = cy.getElementById(edge.data('target'));
                         const sourceIp = sourceNode.data('ip') || 'N/A';
                         const targetIp = targetNode.data('ip') || 'N/A';
                         const weight = edge.data('weight') || '';
-                        const sourceOctet = sourceIp !== 'N/A' ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
-                        const targetOctet = targetIp !== 'N/A' ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
+                        const sourceHostNumber = getHostNumber(sourceIp); // Usar solo el número del host
+                        const targetHostNumber = getHostNumber(targetIp); // Usar solo el número del host
 
                         const tooltipContent = edge.data('invisible') ?
                             `Conexión interna: ${sourceNode.data('router')} -> ${targetNode.data('label')}` :
-                            `Subred: ${weight}<br>Origen: ${sourceNode.data('router')} (${sourceNode.data('label')}, ${sourceIp}, ${sourceOctet})<br>Destino: ${targetNode.data('router')} (${targetNode.data('label')}, ${targetIp}, ${targetOctet})`;
+                            `Subred: ${weight}<br>Origen: ${sourceNode.data('router')} (${sourceNode.data('label')}, ${sourceIp}, Host: ${sourceHostNumber})<br>Destino: ${targetNode.data('router')} (${targetNode.data('label')}, ${targetIp}, Host: ${targetHostNumber})`;
 
                         const tip = tippy(popperDiv, {
                             content: tooltipContent,
@@ -496,7 +685,7 @@
         function applyColor() {
             if (selectedAs) {
                 const newColor = document.getElementById('color-input').value;
-                const node = cy.$id(selectedAs);
+                const node = cy.getElementById(selectedAs); // Usar getElementById en lugar de $id
                 node.style('background-color', newColor);
                 node.animate({
                     style: { 'border-width': 4, 'border-color': '#FF0000' }
