@@ -79,17 +79,33 @@
             margin-top: 10px;
             z-index: 1100; /* Asegurar que los controles estén visibles */
         }
-        #save-positions-btn {
+        #save-btn, #reset-positions-btn, #reset-colors-btn {
             padding: 8px 16px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            background-color: #28a745;
-            color: white;
             margin-right: 10px;
         }
-        #save-positions-btn:hover {
+        #save-btn {
+            background-color: #28a745;
+            color: white;
+        }
+        #save-btn:hover {
             background-color: #218838;
+        }
+        #reset-positions-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+        #reset-positions-btn:hover {
+            background-color: #c82333;
+        }
+        #reset-colors-btn {
+            background-color: #ffc107;
+            color: black;
+        }
+        #reset-colors-btn:hover {
+            background-color: #e0a800;
         }
     </style>
 </head>
@@ -99,11 +115,13 @@
     <div id="controls">
         <label for="zoom-slider">Zoom: </label>
         <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1">
-        <button id="save-positions-btn">Guardar Posiciones</button>
+        <button id="save-btn">Guardar</button>
+        <button id="reset-positions-btn">Resetear Posiciones</button>
+        <button id="reset-colors-btn">Resetear Colores</button>
     </div>
     
     <div id="color-modal">
-        <h4>Selecciona el color para este AS</h4>
+        <h4>Selecciona el color para este elemento</h4>
         <label for="color-input">Color: </label>
         <input type="color" id="color-input">
         <br><br>
@@ -116,7 +134,7 @@
 
     <script>
         let cy;
-        let selectedAs = null;
+        let selectedElement = null; // Cambiado de selectedAs a selectedElement para manejar todos los tipos de elementos
         let edgeLabelStates = new Map(); // Mapa para rastrear el estado de las etiquetas (host o IP completa)
         let isModalClosing = false; // Flag para evitar conflictos de timing con el modal
 
@@ -136,37 +154,145 @@
             return true;
         }
 
-        // Función para guardar posiciones manualmente en localStorage
-        function savePositionsManually() {
-            const positions = {};
-            cy.nodes().forEach(node => {
-                positions[node.id()] = node.position();
-                console.log(`Guardando posición para nodo ${node.id()}:`, node.position(), 'Datos del nodo:', node.data());
-            });
-            localStorage.setItem('bgpNodePositions', JSON.stringify(positions));
-            alert('Posiciones guardadas correctamente.');
-            console.log("Posiciones guardadas:", positions);
+        // Función para generar posiciones aleatorias dentro de un rango
+        function getRandomPosition() {
+            return {
+                x: Math.floor(Math.random() * 800) + 100, // Rango entre 100 y 900
+                y: Math.floor(Math.random() * 600) + 100  // Rango entre 100 y 700
+            };
         }
 
-        // Función para cargar posiciones desde localStorage y preparar nodos con posiciones
-        function loadPositions(nodesData) {
-            const savedPositions = localStorage.getItem('bgpNodePositions');
-            console.log("Posiciones guardadas en localStorage:", savedPositions);
-            if (savedPositions) {
-                const positions = JSON.parse(savedPositions);
-                console.log("Posiciones parseadas:", positions);
+        // Función para resetear posiciones al layout automático
+        function resetPositions() {
+            if (cy) {
+                cy.layout({
+                    name: 'cose',
+                    fit: true,
+                    padding: 50,
+                    componentSpacing: 100,
+                    nodeRepulsion: 400000,
+                    idealEdgeLength: (edge) => edge.data('weight') === 10 ? 30 : 150, // Reducir idealEdgeLength para jerárquicos (routers-interfaces)
+                    nodeOverlap: 20,
+                    edgeElasticity: 100,
+                    animate: true,
+                    animationDuration: 1000
+                }).run();
+                console.log("Posiciones reseteadas al layout automático (cose)");
+            }
+        }
+
+        // Función para resetear colores a valores predeterminados
+        function resetColors() {
+            if (cy) {
+                cy.nodes('[!parent]').style('background-color', '#ddd'); // AS
+                cy.nodes('[parent][!type]').style('background-color', '#00FF00'); // Routers
+                cy.nodes('[type="interface"]').style('background-color', '#FFA500'); // Interfaces
+                cy.edges('[!invisible][type!="hierarchical"]').style('line-color', '#000'); // Enlaces visibles
+
+                // Guardar colores predeterminados en data para persistencia
+                cy.nodes().forEach(node => {
+                    const defaultColor = node.data('type') === 'interface' ? '#FFA500' : (node.data.parent ? '#00FF00' : '#ddd');
+                    node.data('color', defaultColor);
+                    console.log(`Color reseteado para nodo ${node.id()} a: ${defaultColor}`);
+                });
+                cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => {
+                    edge.data('color', '#000');
+                    console.log(`Color reseteado para enlace ${edge.id()} a: #000`);
+                });
+                console.log("Colores reseteados a valores predeterminados");
+            }
+        }
+
+        // Función para guardar posiciones y colores en localStorage
+        function saveData() {
+            const positions = {};
+            const colors = {
+                nodes: {},
+                edges: {}
+            };
+            cy.nodes().forEach(node => {
+                positions[node.id()] = node.position();
+                const color = node.style('background-color') || '#DDDDDD'; // Obtener color del nodo
+                colors.nodes[node.id()] = rgbToHex(color); // Convertir a hexadecimal
+                console.log(`Guardando posición y color para nodo ${node.id()}:`, { position: node.position(), color: colors.nodes[node.id()], data: node.data() });
+            });
+            cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => { // Solo guardar colores de enlaces visibles (no jerárquicos)
+                const color = edge.style('line-color') || '#000'; // Obtener color del enlace
+                colors.edges[edge.id()] = rgbToHex(color); // Convertir a hexadecimal
+                console.log(`Guardando color para enlace ${edge.id()}:`, { color: colors.edges[edge.id()], data: edge.data() });
+            });
+            const savedData = {
+                positions: positions,
+                colors: colors
+            };
+            localStorage.setItem('bgpNodeData', JSON.stringify(savedData));
+            alert('Datos guardados correctamente (posiciones y colores).');
+            console.log("Datos guardados:", savedData);
+        }
+
+        // Función para cargar posiciones y colores desde localStorage
+        function loadData(nodesData) {
+            const savedData = localStorage.getItem('bgpNodeData');
+            console.log("Datos guardados en localStorage:", savedData);
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                console.log("Datos parseados:", data);
                 return nodesData.map(node => {
-                    console.log(`Verificando posición para nodo ${node.data.id}, datos actuales:`, node.data);
-                    if (positions[node.data.id]) {
-                        console.log(`Aplicando posición a nodo ${node.data.id}:`, positions[node.data.id], 'Datos antes de aplicar posición:', node.data);
-                        return { ...node, position: positions[node.data.id] };
+                    console.log(`Verificando datos para nodo ${node.data.id}, datos actuales:`, node.data);
+                    const nodeId = node.data.id;
+                    if (data.positions && data.positions[nodeId]) {
+                        console.log(`Aplicando posición a nodo ${nodeId}:`, data.positions[nodeId], 'Datos antes de aplicar posición:', node.data);
+                        node.position = { ...data.positions[nodeId] }; // Asegurar que sea un objeto con x e y
+                    } else {
+                        console.warn(`No se encontró posición guardada para nodo ${nodeId}, usando posición aleatoria`);
+                        node.position = getRandomPosition(); // Posición aleatoria si no hay datos guardados
                     }
-                    console.log(`No se encontró posición guardada para nodo ${node.data.id}, datos actuales:`, node.data);
+                    if (data.colors && data.colors.nodes && data.colors.nodes[nodeId]) {
+                        console.log(`Aplicando color a nodo ${nodeId}:`, data.colors.nodes[nodeId]);
+                        node.data.color = data.colors.nodes[nodeId]; // Guardar color en data para futura referencia
+                    } else {
+                        console.log(`No se encontró color guardado para nodo ${nodeId}, usando color predeterminado`);
+                        node.data.color = node.data.type === 'interface' ? '#FFA500' : (node.data.parent ? '#00FF00' : '#ddd');
+                    }
                     return node;
                 });
             }
-            console.log("No hay posiciones guardadas en localStorage");
-            return nodesData;
+            console.log("No hay datos guardados en localStorage, usando posiciones y colores predeterminados");
+            return nodesData.map(node => {
+                node.position = getRandomPosition(); // Posición aleatoria si no hay datos guardados
+                node.data.color = node.data.type === 'interface' ? '#FFA500' : (node.data.parent ? '#00FF00' : '#ddd');
+                return node;
+            });
+        }
+
+        // Función para añadir bordes jerárquicos (AS -> routers, routers -> interfaces)
+        function addHierarchicalEdges(nodes, edges) {
+            const hierarchicalEdges = [];
+            nodes.forEach(node => {
+                if (node.data.parent && !node.data.type) { // Routers dentro de un AS
+                    hierarchicalEdges.push({
+                        data: {
+                            source: node.data.parent,
+                            target: node.data.id,
+                            weight: 10, // Peso mayor para priorizar jerarquía
+                            type: 'hierarchical',
+                            invisible: true
+                        }
+                    });
+                }
+                if (node.data.type === 'interface' && node.data.router) { // Interfaces conectadas a routers
+                    hierarchicalEdges.push({
+                        data: {
+                            source: node.data.router,
+                            target: node.data.id,
+                            weight: 10, // Peso mayor para priorizar jerarquía
+                            type: 'hierarchical',
+                            invisible: true
+                        }
+                    });
+                }
+            });
+            return edges.concat(hierarchicalEdges);
         }
 
         // Función para extraer el número del host (último octeto) de una IP
@@ -181,9 +307,9 @@
 
         // Función para convertir RGB a hexadecimal
         function rgbToHex(rgb) {
-            if (!rgb || typeof rgb !== 'string') return '#DDDDDD'; // Valor por defecto si no hay color
+            if (!rgb || typeof rgb !== 'string') return '#ddd'; // Valor por defecto si no hay color (cambiado a #ddd para consistencia con AS)
             const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-            if (!match) return '#DDDDDD'; // Valor por defecto si el formato no es válido
+            if (!match) return '#ddd'; // Valor por defecto si el formato no es válido
             const [_, r, g, b] = match;
             return `#${[r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('')}`;
         }
@@ -259,7 +385,8 @@
                                         type: 'interface',
                                         router: routerId,
                                         ip: ip, // Asegurarse de que el campo 'ip' esté explícitamente asignado
-                                        parent: parent
+                                        parent: parent,
+                                        color: '#FFA500' // Color predeterminado para interfaces
                                     }
                                 });
                                 interfaceEdges.push({
@@ -274,7 +401,7 @@
                     });
 
                     // Depuración: Mostrar nodos de interfaz generados con sus datos completos
-                    console.log("Nodos de interfaz generados:", interfaceNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label })));
+                    console.log("Nodos de interfaz generados:", interfaceNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, color: n.data.color })));
 
                     // Transformar enlaces de routers a interfaces con IDs únicos
                     const transformedEdges = data.edges.map(edge => {
@@ -313,7 +440,8 @@
                                         type: 'interface',
                                         router: sourceRouter,
                                         ip: ip,
-                                        parent: data.nodes.find(n => n.data.id === sourceRouter)?.data.parent
+                                        parent: data.nodes.find(n => n.data.id === sourceRouter)?.data.parent,
+                                        color: '#FFA500' // Color predeterminado para interfaces
                                     }
                                 });
                                 interfaceEdges.push({
@@ -324,7 +452,7 @@
                                     }
                                 });
                                 sourceNodeExists = true;
-                                console.log(`Nodo de interfaz generado dinámicamente: ${sourceIntfId} (router=${sourceRouter}, ip=${ip})`);
+                                console.log(`Nodo de interfaz generado dinámicamente: ${sourceIntfId} (router=${sourceRouter}, ip=${ip}, color=${'#FFA500'})`);
                             }
                         }
                         if (!targetNodeExists) {
@@ -338,7 +466,8 @@
                                         type: 'interface',
                                         router: targetRouter,
                                         ip: ip,
-                                        parent: data.nodes.find(n => n.data.id === targetRouter)?.data.parent
+                                        parent: data.nodes.find(n => n.data.id === targetRouter)?.data.parent,
+                                        color: '#FFA500' // Color predeterminado para interfaces
                                     }
                                 });
                                 interfaceEdges.push({
@@ -349,7 +478,7 @@
                                     }
                                 });
                                 targetNodeExists = true;
-                                console.log(`Nodo de interfaz generado dinámicamente: ${targetIntfId} (router=${targetRouter}, ip=${ip})`);
+                                console.log(`Nodo de interfaz generado dinámicamente: ${targetIntfId} (router=${targetRouter}, ip=${ip}, color=${'#FFA500'})`);
                             }
                         }
 
@@ -357,36 +486,64 @@
                             data: {
                                 source: sourceIntfId,
                                 target: targetIntfId,
-                                weight: weight
+                                weight: weight,
+                                color: '#000' // Color predeterminado para enlaces
                             }
                         };
                     }).filter(edge => edge !== null); // Filtrar enlaces nulos
 
-                    // Depuración: Mostrar enlaces transformados
-                    console.log("Enlaces transformados:", transformedEdges);
+                    // Depuración: Mostrar enlaces transformados con colores
+                    console.log("Enlaces transformados:", transformedEdges.map(e => ({ data: e.data, color: e.data.color })));
 
                     // Combinar nodos y enlaces originales con los generados
                     const allNodes = data.nodes.concat(interfaceNodes);
-                    const allEdges = interfaceEdges.concat(transformedEdges);
+                    let allEdges = interfaceEdges.concat(transformedEdges);
 
-                    // Depuración: Mostrar todos los nodos combinados con sus IPs
-                    console.log("Todos los nodos combinados:", allNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, type: n.data.type })));
-                    console.log("Todos los enlaces combinados:", allEdges);
+                    // Añadir bordes jerárquicos para la estructura (AS -> routers, routers -> interfaces)
+                    allEdges = addHierarchicalEdges(allNodes, allEdges);
 
-                    // Cargar posiciones guardadas y aplicarlas a los nodos antes de inicializar Cytoscape
-                    const nodesWithPositions = loadPositions(allNodes);
+                    // Depuración: Mostrar todos los nodos combinados con sus IPs, colores y posiciones
+                    console.log("Todos los nodos combinados:", allNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, type: n.data.type, color: n.data.color })));
+                    console.log("Todos los enlaces combinados (incluyendo jerárquicos):", allEdges.map(e => ({ data: e.data, color: e.data.color, type: e.data.type })));
 
-                    // Depuración: Mostrar nodos con posiciones y verificar IPs después de cargar posiciones
-                    console.log("Nodos con posiciones aplicadas:", nodesWithPositions.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, type: n.data.type, position: n.position })));
+                    // Cargar datos guardados (posiciones y colores) y aplicarlas a los nodos antes de inicializar Cytoscape
+                    const nodesWithData = loadData(allNodes);
+
+                    // Verificar que todas las posiciones sean válidas antes de inicializar
+                    nodesWithData.forEach(node => {
+                        if (!node.position || !node.position.x || !node.position.y) {
+                            console.warn(`Posición inválida para nodo ${node.data.id}, usando posición aleatoria`);
+                            node.position = getRandomPosition(); // Posición aleatoria si no hay datos válidos
+                        }
+                    });
+
+                    // Determinar si usar layout automático o posiciones guardadas
+                    let usePreset = false;
+                    if (nodesWithData.every(node => node.position && node.position.x && node.position.y)) {
+                        usePreset = true;
+                        console.log("Usando layout preset con posiciones guardadas");
+                    } else {
+                        console.log("Usando layout cose con disposición automática");
+                    }
+
+                    // Depuración: Mostrar nodos con datos aplicados y verificar IPs, colores y posiciones después de cargar datos
+                    console.log("Nodos con datos aplicados (verificados):", nodesWithData.map(n => ({
+                        id: n.data.id,
+                        ip: n.data.ip,
+                        label: n.data.label,
+                        type: n.data.type,
+                        position: n.position,
+                        color: n.data.color
+                    })));
 
                     cy = cytoscape({
                         container: document.getElementById('cy'),
-                        elements: { nodes: nodesWithPositions, edges: allEdges },
+                        elements: { nodes: nodesWithData, edges: allEdges },
                         style: [
                             {
                                 selector: 'node[parent][!type]', // Routers dentro de AS
                                 style: {
-                                    'background-color': '#00FF00',
+                                    'background-color': (ele) => ele.data('color') || '#00FF00',
                                     'shape': 'ellipse',
                                     'width': 60,
                                     'height': 60,
@@ -404,7 +561,7 @@
                                 selector: 'node[!parent]', // AS
                                 style: {
                                     'shape': 'rectangle',
-                                    'background-color': '#ddd',
+                                    'background-color': (ele) => ele.data('color') || '#ddd',
                                     'padding': 20,
                                     'label': 'data(label)',
                                     'font-size': 16,
@@ -420,7 +577,7 @@
                             {
                                 selector: 'node[type="interface"]', // Interfaces
                                 style: {
-                                    'background-color': '#FFA500',
+                                    'background-color': (ele) => ele.data('color') || '#FFA500',
                                     'shape': 'ellipse',
                                     'width': 40,
                                     'height': 40,
@@ -435,10 +592,19 @@
                                 }
                             },
                             {
-                                selector: 'edge[!invisible]', // Solo enlaces visibles (con weight)
+                                selector: 'edge[type="hierarchical"]', // Bordes jerárquicos invisibles
+                                style: {
+                                    'width': 1,
+                                    'line-color': '#000',
+                                    'opacity': 0, // Ocultar visualmente
+                                    'curve-style': 'bezier'
+                                }
+                            },
+                            {
+                                selector: 'edge[!invisible][type!="hierarchical"]', // Enlaces visibles (subredes)
                                 style: {
                                     'width': 3,
-                                    'line-color': '#000',
+                                    'line-color': (ele) => ele.data('color') || '#000',
                                     'curve-style': 'bezier',
                                     'label': 'data(weight)', // Subred en el centro
                                     'font-size': 14,
@@ -520,7 +686,7 @@
                                 }
                             },
                             {
-                                selector: 'edge[invisible]', // Enlaces invisibles (conexiones router-interfaz)
+                                selector: 'edge[invisible][type!="hierarchical"]', // Enlaces invisibles (conexiones router-interfaz)
                                 style: {
                                     'width': 1,
                                     'line-color': '#000', // Negro como solicitado
@@ -528,136 +694,90 @@
                                 }
                             }
                         ],
-                        layout: {
-                            name: 'preset', // Cambiamos a 'preset' para respetar posiciones manuales
+                        layout: usePreset ? {
+                            name: 'preset', // Usar preset si hay posiciones guardadas válidas
                             fit: true,
-                            padding: 30 // Reducido para un ajuste más cercano
+                            padding: 50
+                        } : {
+                            name: 'cose', // Usar cose para disposición automática lógica si no hay posiciones guardadas
+                            fit: true,
+                            padding: 50, // Aumentar padding para mayor espacio
+                            componentSpacing: 100, // Espacio entre componentes (AS, routers, interfaces)
+                            nodeRepulsion: 400000, // Aumentar repulsión para evitar superposición
+                            idealEdgeLength: (edge) => edge.data('weight') === 10 ? 30 : 150, // Reducir idealEdgeLength para jerárquicos (routers-interfaces)
+                            nodeOverlap: 20,
+                            edgeElasticity: 100,
+                            animate: true,
+                            animationDuration: 1000
                         }
                     });
 
-                    // Depuración: Verificar nodos AS después de inicializar Cytoscape
-                    console.log("Nodos AS disponibles después de inicializar:", cy.nodes('[!parent]').map(node => ({
-                        id: node.id(),
-                        data: node.data(),
-                        position: node.position(),
-                        style: node.style()
-                    })));
-
-                    // Asegurarse de que los nodos de interfaz tengan sus IPs antes de evaluar estilos
-                    cy.nodes('[type="interface"]').forEach(node => {
-                        const routerId = node.data('router');
-                        const interfaceName = node.id().split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
-                        console.log(`Verificando nodo de interfaz ${node.id()}, router: ${routerId}, interfaz: ${interfaceName}, data:`, node.data());
-                        if (routerId) {
-                            const routerNode = cy.getElementById(routerId);
-                            console.log(`Router asociado ${routerId}:`, routerNode ? routerNode.data() : 'No encontrado');
-                            if (routerNode) {
-                                const routerInterfaces = routerNode.data('interfaces');
-                                console.log(`Interfaces del router ${routerId}:`, routerInterfaces);
-                                if (routerInterfaces && routerInterfaces[interfaceName]) {
-                                    const ip = routerInterfaces[interfaceName];
-                                    console.log(`Asignando IP ${ip} al nodo de interfaz ${node.id()}`);
-                                    node.data('ip', ip); // Forzar la asignación de la IP al nodo de interfaz
-                                } else {
-                                    console.log(`No se encontraron interfaces o IP para ${interfaceName} en router ${routerId}`);
-                                }
-                            } else {
-                                console.log(`No se encontró el router ${routerId} para nodo de interfaz ${node.id()}`);
-                            }
+                    // Aplicar colores guardados a los nodos y enlaces después de inicializar
+                    cy.nodes().forEach(node => {
+                        if (node.data('color')) {
+                            node.style('background-color', node.data('color'));
+                            console.log(`Color aplicado al nodo ${node.id()}:`, node.data('color'));
+                        }
+                    });
+                    cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => { // Solo aplicar a enlaces visibles, no jerárquicos
+                        if (edge.data('color')) {
+                            edge.style('line-color', edge.data('color'));
+                            console.log(`Color aplicado al enlace ${edge.id()}:`, edge.data('color'));
                         }
                     });
 
-                    // Refrescar los estilos para reflejar los cambios en data('ip') antes de evaluar etiquetas
+                    // Ocultar bordes jerárquicos visualmente después del layout
+                    cy.edges('[type="hierarchical"]').style('opacity', 0);
+
+                    // Refrescar los estilos para reflejar los cambios en data('ip') y colors antes de evaluar etiquetas
                     cy.style().update();
                     cy.edges().trigger('style'); // Disparar evento para actualizar estilos de enlaces
-                    console.log("Estilos actualizados después de forzar IPs antes de evaluar etiquetas");
+                    console.log("Estilos actualizados después de forzar IPs y colores antes de evaluar etiquetas");
 
-                    // Refrescar el grafo para asegurar que las etiquetas se rendericen correctamente
+                    // Refrescar el grafo para asegurar que las etiquetas y posiciones se rendericen correctamente
                     cy.resize();
-                    console.log("Grafo redimensionado para actualizar etiquetas");
+                    console.log("Grafo redimensionado para actualizar etiquetas y posiciones");
 
-                    // Depuración: Verificar nodos después de forzar IPs, refrescar estilos y redimensionar
-                    console.log("Nodos cargados en Cytoscape después de forzar IPs, refrescar estilos y redimensionar:", cy.nodes().map(n => ({
+                    // Depuración: Verificar nodos después de forzar IPs y colores, refrescar estilos y redimensionar
+                    console.log("Nodos cargados en Cytoscape después de forzar IPs y colores, refrescar estilos y redimensionar:", cy.nodes().map(n => ({
                         id: n.id(),
                         ip: n.data('ip'),
                         label: n.data('label'),
                         type: n.data('type'),
                         position: n.position(),
-                        style: n.style()
+                        color: n.style('background-color')
                     })));
 
-                    // Aplicar layout 'cose' solo a nodos sin posiciones guardadas (opcional, si necesitas layout dinámico para nuevos nodos)
-                    const nodesWithoutPositions = cy.nodes().filter(node => !node.position());
-                    if (nodesWithoutPositions.length > 0) {
-                        nodesWithoutPositions.layout({
-                            name: 'cose',
-                            fit: true,
-                            padding: 30,
-                            componentSpacing: 50,
-                            nodeRepulsion: 200000,
-                            idealEdgeLength: 80,
-                            nodeOverlap: 10,
-                            animate: true
-                        }).run();
-                    }
-
-                    // Establecer un zoom inicial más cercano después de cargar
-                    cy.on('layoutstop', () => {
-                        cy.zoom(1.5); // Zoom inicial más cercano (ajusta este valor según necesites)
-                        cy.center(); // Centrar el grafo
-                    });
-
-                    // Depuración
-                    console.log("Nodos cargados en Cytoscape después del layout:", cy.nodes().map(n => ({
-                        id: n.id(),
-                        ip: n.data('ip'),
-                        label: n.data('label'),
-                        type: n.data('type'),
-                        position: n.position(),
-                        style: n.style()
-                    })));
-                    console.log("Enlaces cargados en Cytoscape:", cy.edges().map(e => ({
-                        data: e.data(),
-                        style: e.style()
-                    })));
-
-                    // Añadir evento de clic para toggle en los enlaces visibles
-                    cy.edges('[!invisible]').on('click', evt => {
+                    // Añadir evento de clic para toggle en los enlaces visibles (no jerárquicos)
+                    cy.edges('[!invisible][type!="hierarchical"]').on('click', evt => {
                         const edge = evt.target;
                         toggleEdgeLabel(edge);
                     });
 
-                    // Ocultar mensaje de carga
-                    document.getElementById('loading').style.display = 'none';
-
-                    // Control de zoom
-                    const zoomSlider = document.getElementById('zoom-slider');
-                    zoomSlider.addEventListener('input', function() {
-                        cy.zoom(parseFloat(this.value));
-                        cy.center();
-                    });
-
-                    // Botón para guardar posiciones manualmente
-                    document.getElementById('save-positions-btn').addEventListener('click', savePositionsManually);
-
-                    // Modal para cambiar color de AS con doble clic
-                    cy.on('dblclick', 'node[!parent]', evt => {
-                        console.log('Evento de doble clic detectado, isModalClosing:', isModalClosing, 'selectedAs:', selectedAs);
+                    // Añadir evento de doble clic para cambiar color de nodos (AS, routers, interfaces) y enlaces visibles
+                    cy.on('dblclick', 'node, edge[!invisible][type!="hierarchical"]', evt => {
+                        console.log('Evento de doble clic detectado, isModalClosing:', isModalClosing, 'selectedElement:', selectedElement);
                         if (isModalClosing) {
                             console.log('Doble clic ignorado, el modal está cerrándose');
                             return; // Ignorar doble clic si el modal está cerrándose
                         }
 
-                        const node = evt.target;
-                        console.log('Nodo clicado:', {
-                            id: node.id(),
-                            data: node.data(),
-                            position: node.position(),
-                            style: node.style(),
-                            renderedPosition: node.renderedPosition()
-                        });
-                        const pos = node.renderedPosition();
+                        const element = evt.target;
+                        let pos;
+                        if (element.isNode()) {
+                            pos = element.renderedPosition();
+                        } else if (element.isEdge()) {
+                            pos = element.renderedMidpoint();
+                        }
                         const modal = document.getElementById('color-modal');
+                        console.log('Elemento clicado:', {
+                            id: element.id(),
+                            type: element.isNode() ? 'node' : 'edge',
+                            data: element.data(),
+                            position: element.position(),
+                            style: element.style(),
+                            renderedPosition: pos
+                        });
                         console.log('Modal DOM antes de mostrar:', {
                             id: modal.id,
                             display: window.getComputedStyle(modal).display,
@@ -693,11 +813,16 @@
                         // Usar setTimeout para dar tiempo al navegador a procesar los cambios
                         setTimeout(() => {
                             modal.classList.add('show');
-                            selectedAs = node.id();
-                            const currentColor = node.style('background-color') || '#DDDDDD';
+                            selectedElement = element.id();
+                            let currentColor;
+                            if (element.isNode()) {
+                                currentColor = element.style('background-color') || (element.data('type') === 'interface' ? '#FFA500' : '#00FF00');
+                            } else if (element.isEdge()) {
+                                currentColor = element.style('line-color') || '#000';
+                            }
                             const hexColor = rgbToHex(currentColor); // Convertir a hexadecimal
                             document.getElementById('color-input').value = hexColor;
-                            console.log(`Doble clic en AS ${node.id()}, color actual: ${currentColor}, convertido a: ${hexColor}, modal mostrado, isModalClosing: ${isModalClosing}, selectedAs: ${selectedAs}`);
+                            console.log(`Doble clic en ${element.isNode() ? 'nodo' : 'enlace'} ${element.id()}, color actual: ${currentColor}, convertido a: ${hexColor}, modal mostrado, isModalClosing: ${isModalClosing}, selectedElement: ${selectedElement}`);
                             console.log('Estado del modal después de mostrar:', {
                                 display: window.getComputedStyle(modal).display,
                                 opacity: window.getComputedStyle(modal).opacity,
@@ -758,8 +883,8 @@
                         node.on('mouseout', () => tip.hide());
                     });
 
-                    // Tooltips para enlaces
-                    cy.edges().forEach(edge => {
+                    // Tooltips para enlaces visibles (no jerárquicos)
+                    cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => {
                         const popperDiv = document.createElement('div');
                         popperDiv.style.position = 'absolute';
                         popperDiv.style.width = '1px';
@@ -801,6 +926,18 @@
                         edge.on('mouseover', () => tip.show());
                         edge.on('mouseout', () => tip.hide());
                     });
+
+                    // Control de zoom
+                    const zoomSlider = document.getElementById('zoom-slider');
+                    zoomSlider.addEventListener('input', function() {
+                        cy.zoom(parseFloat(this.value));
+                        cy.center();
+                    });
+
+                    // Botones para guardar y resetear
+                    document.getElementById('save-btn').addEventListener('click', saveData);
+                    document.getElementById('reset-positions-btn').addEventListener('click', resetPositions);
+                    document.getElementById('reset-colors-btn').addEventListener('click', resetColors);
                 } catch (error) {
                     console.error('Error al inicializar el grafo:', error);
                     alert(`Error al inicializar el mapa BGP: ${error.message}`);
@@ -816,23 +953,29 @@
             });
 
         function applyColor() {
-            if (selectedAs) {
+            if (selectedElement) {
                 const newColor = document.getElementById('color-input').value;
-                const node = cy.getElementById(selectedAs); // Usar getElementById en lugar de $id
-                console.log(`Aplicando color ${newColor} al AS ${selectedAs}, nodo actual:`, {
-                    data: node.data(),
-                    style: node.style(),
-                    renderedPosition: node.renderedPosition()
+                const element = cy.getElementById(selectedElement);
+                console.log(`Aplicando color ${newColor} al ${element.isNode() ? 'nodo' : 'enlace'} ${selectedElement}, elemento actual:`, {
+                    data: element.data(),
+                    style: element.style(),
+                    renderedPosition: element.isNode() ? element.renderedPosition() : element.renderedMidpoint()
                 });
-                node.style('background-color', newColor);
-                node.animate({
+                if (element.isNode()) {
+                    element.style('background-color', newColor);
+                    element.data('color', newColor); // Guardar color en data para persistencia
+                } else if (element.isEdge()) {
+                    element.style('line-color', newColor);
+                    element.data('color', newColor); // Guardar color en data para persistencia
+                }
+                element.animate({
                     style: { 'border-width': 4, 'border-color': '#FF0000' }
                 }, { duration: 500 }).animate({
                     style: { 'border-width': 2, 'border-color': '#000' }
                 }, { duration: 500 });
                 hideColorModal();
             } else {
-                console.warn('No hay AS seleccionado para aplicar color.');
+                console.warn('No hay elemento seleccionado para aplicar color.');
             }
         }
 
@@ -840,7 +983,7 @@
             const modal = document.getElementById('color-modal');
             console.log('Iniciando cierre del modal, estado actual:', {
                 isModalClosing,
-                selectedAs,
+                selectedElement,
                 display: window.getComputedStyle(modal).display,
                 opacity: window.getComputedStyle(modal).opacity,
                 className: modal.className,
@@ -855,10 +998,10 @@
                 modal.style.display = 'none';
                 modal.style.opacity = '0'; // Asegurar que la opacidad se restablezca
                 isModalClosing = false; // Restablecer el flag después de cerrar
-                selectedAs = null; // Restablecer selectedAs al cerrar la ventana
+                selectedElement = null; // Restablecer selectedElement al cerrar la ventana
                 console.log('Modal cerrado, estado final:', {
                     isModalClosing,
-                    selectedAs,
+                    selectedElement,
                     display: window.getComputedStyle(modal).display,
                     opacity: window.getComputedStyle(modal).opacity,
                     className: modal.className,
