@@ -122,7 +122,7 @@
                 try {
                     validateGraphData(data);
 
-                    // Generar nodos de interfaz dinámicamente
+                    // Generar nodos de interfaz dinámicamente con IDs únicos
                     const interfaceNodes = [];
                     const interfaceEdges = [];
                     data.nodes.forEach(node => {
@@ -130,11 +130,11 @@
                             const routerId = node.data.id;
                             const parent = node.data.parent;
                             Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
-                                const intfId = `${routerId}_${intfName}`;
+                                const intfId = `${routerId}_${intfName}`; // Usar formato único: router_interfaz (e.g., "R2_eth0")
                                 interfaceNodes.push({
                                     data: {
                                         id: intfId,
-                                        label: intfName,
+                                        label: intfName, // Mantén el nombre original para la visualización (e.g., "eth0")
                                         type: 'interface',
                                         router: routerId,
                                         ip: ip,
@@ -152,9 +152,95 @@
                         }
                     });
 
+                    // Transformar enlaces de routers a interfaces con IDs únicos
+                    const transformedEdges = data.edges.map(edge => {
+                        const sourceRouter = edge.data.source;
+                        const targetRouter = edge.data.target;
+                        const sourceInterface = edge.data.sourceInterface;
+                        const targetInterface = edge.data.targetInterface;
+                        const weight = edge.data.weight;
+
+                        // Depuración
+                        console.log(`Transformando enlace: ${sourceRouter} (${sourceInterface}) -> ${targetRouter} (${targetInterface})`);
+
+                        // Verificar que las interfaces existan en los nodos generados
+                        const sourceIntfId = `${sourceRouter}_${sourceInterface}`; // Usar formato único (e.g., "R2_eth0")
+                        const targetIntfId = `${targetRouter}_${targetInterface}`; // Usar formato único (e.g., "R3_eth0")
+
+                        // Verificar que las interfaces existan antes de crear el enlace
+                        let sourceNodeExists = interfaceNodes.some(n => n.data.id === sourceIntfId && n.data.router === sourceRouter);
+                        let targetNodeExists = interfaceNodes.some(n => n.data.id === targetIntfId && n.data.router === targetRouter);
+
+                        // Generar dinámicamente nodos de interfaz faltantes
+                        if (!sourceNodeExists) {
+                            const ip = data.nodes.find(n => n.data.id === sourceRouter)?.data.interfaces?.[sourceInterface];
+                            if (ip) {
+                                console.warn(`Interfaz no encontrada: source=${sourceIntfId} (router=${sourceRouter}), generando dinámicamente...`);
+                                interfaceNodes.push({
+                                    data: {
+                                        id: sourceIntfId,
+                                        label: sourceInterface,
+                                        type: 'interface',
+                                        router: sourceRouter,
+                                        ip: ip,
+                                        parent: data.nodes.find(n => n.data.id === sourceRouter)?.data.parent
+                                    }
+                                });
+                                interfaceEdges.push({
+                                    data: {
+                                        source: sourceRouter,
+                                        target: sourceIntfId,
+                                        invisible: true
+                                    }
+                                });
+                                sourceNodeExists = true;
+                                console.log(`Nodo de interfaz generado dinámicamente: ${sourceIntfId} (router=${sourceRouter}, ip=${ip})`);
+                            } else {
+                                console.error(`No se pudo generar el nodo para ${sourceIntfId} (router=${sourceRouter}) - IP no encontrada`);
+                                return null;
+                            }
+                        }
+                        if (!targetNodeExists) {
+                            const ip = data.nodes.find(n => n.data.id === targetRouter)?.data.interfaces?.[targetInterface];
+                            if (ip) {
+                                console.warn(`Interfaz no encontrada: target=${targetIntfId} (router=${targetRouter}), generando dinámicamente...`);
+                                interfaceNodes.push({
+                                    data: {
+                                        id: targetIntfId,
+                                        label: targetInterface,
+                                        type: 'interface',
+                                        router: targetRouter,
+                                        ip: ip,
+                                        parent: data.nodes.find(n => n.data.id === targetRouter)?.data.parent
+                                    }
+                                });
+                                interfaceEdges.push({
+                                    data: {
+                                        source: targetRouter,
+                                        target: targetIntfId,
+                                        invisible: true
+                                    }
+                                });
+                                targetNodeExists = true;
+                                console.log(`Nodo de interfaz generado dinámicamente: ${targetIntfId} (router=${targetRouter}, ip=${ip})`);
+                            } else {
+                                console.error(`No se pudo generar el nodo para ${targetIntfId} (router=${targetRouter}) - IP no encontrada`);
+                                return null;
+                            }
+                        }
+
+                        return {
+                            data: {
+                                source: sourceIntfId,
+                                target: targetIntfId,
+                                weight: weight
+                            }
+                        };
+                    }).filter(edge => edge !== null); // Filtrar enlaces nulos
+
                     // Combinar nodos y enlaces originales con los generados
                     const allNodes = data.nodes.concat(interfaceNodes);
-                    const allEdges = data.edges.concat(interfaceEdges);
+                    const allEdges = interfaceEdges.concat(transformedEdges);
 
                     cy = cytoscape({
                         container: document.getElementById('cy'),
@@ -201,7 +287,7 @@
                                     'shape': 'ellipse',
                                     'width': 40,
                                     'height': 40,
-                                    'label': 'data(label)',
+                                    'label': 'data(label)', // Mostrar el nombre original (e.g., "eth0")
                                     'text-valign': 'center',
                                     'text-halign': 'center',
                                     'font-size': 12,
@@ -212,7 +298,7 @@
                                 }
                             },
                             {
-                                selector: 'edge',
+                                selector: 'edge[!invisible]', // Solo enlaces visibles (con weight)
                                 style: {
                                     'width': 3,
                                     'line-color': '#000',
@@ -225,17 +311,15 @@
                                     'text-background-padding': 3,
                                     'source-label': ele => {
                                         const sourceNode = cy.$id(ele.data('source'));
-                                        const sourceInterface = ele.data('sourceInterface');
-                                        const sourceIp = sourceInterface && sourceNode.data('interfaces') ? sourceNode.data('interfaces')[sourceInterface] || 'N/A' : 'N/A';
+                                        const sourceIp = sourceNode.data('ip') || 'N/A';
                                         const octet = sourceIp !== 'N/A' ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
-                                        return sourceInterface ? `${sourceInterface} (${octet})` : '';
+                                        return `${sourceNode.data('label')} (${octet})`;
                                     },
                                     'target-label': ele => {
                                         const targetNode = cy.$id(ele.data('target'));
-                                        const targetInterface = ele.data('targetInterface');
-                                        const targetIp = targetInterface && targetNode.data('interfaces') ? targetNode.data('interfaces')[targetInterface] || 'N/A' : 'N/A';
+                                        const targetIp = targetNode.data('ip') || 'N/A';
                                         const octet = targetIp !== 'N/A' ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
-                                        return targetInterface ? `${targetInterface} (${octet})` : '';
+                                        return `${targetNode.data('label')} (${octet})`;
                                     },
                                     'source-text-offset': 30,
                                     'target-text-offset': 30,
@@ -247,12 +331,11 @@
                                 }
                             },
                             {
-                                selector: 'edge[invisible]',
+                                selector: 'edge[invisible]', // Enlaces invisibles (conexiones router-interfaz)
                                 style: {
                                     'width': 1,
-                                    'line-color': '#888',
-                                    'opacity': 0.2, // Hacer visible sutilmente para influir en el layout
-                                    'z-index': -1 // Mantener detrás de los enlaces visibles
+                                    'line-color': '#000', // Negro como solicitado
+                                    'opacity': 0.2 // Visible sutilmente para influir en el layout
                                 }
                             }
                         ],
@@ -262,7 +345,7 @@
                             padding: 50,
                             componentSpacing: 150,
                             nodeRepulsion: 400000,
-                            idealEdgeLength: 200, // Aumentado para mejor posicionamiento
+                            idealEdgeLength: 200, // Ajustado para mejor posicionamiento
                             nodeOverlap: 20,
                             animate: true
                         }
@@ -347,7 +430,7 @@
                         node.on('mouseout', () => tip.hide());
                     });
 
-                    // Tooltips para enlaces con depuración
+                    // Tooltips para enlaces
                     cy.edges().forEach(edge => {
                         const popperDiv = document.createElement('div');
                         popperDiv.style.position = 'absolute';
@@ -369,20 +452,15 @@
 
                         const sourceNode = cy.$id(edge.data('source'));
                         const targetNode = cy.$id(edge.data('target'));
-                        const sourceInterface = edge.data('sourceInterface');
-                        const targetInterface = edge.data('targetInterface');
-                        const sourceIp = sourceInterface && sourceNode.data('interfaces') ? sourceNode.data('interfaces')[sourceInterface] || 'N/A' : 'N/A';
-                        const targetIp = targetInterface && targetNode.data('interfaces') ? targetNode.data('interfaces')[targetInterface] || 'N/A' : 'N/A';
+                        const sourceIp = sourceNode.data('ip') || 'N/A';
+                        const targetIp = targetNode.data('ip') || 'N/A';
                         const weight = edge.data('weight') || '';
                         const sourceOctet = sourceIp !== 'N/A' ? `.${sourceIp.split('.')[3].split('/')[0]}` : '.?';
                         const targetOctet = targetIp !== 'N/A' ? `.${targetIp.split('.')[3].split('/')[0]}` : '.?';
 
-                        // Depuración en consola para verificar IPs
-                        console.log(`Enlace ${edge.data('source')} -> ${edge.data('target')}: sourceIp=${sourceIp}, targetIp=${targetIp}`);
-
                         const tooltipContent = edge.data('invisible') ?
-                            `Conexión interna: ${sourceNode.data('label')} -> ${targetNode.data('label')}` :
-                            `Subred: ${weight}<br>Origen: ${sourceNode.data('label')} (${sourceInterface}, ${sourceIp}, ${sourceOctet})<br>Destino: ${targetNode.data('label')} (${targetInterface}, ${targetIp}, ${targetOctet})`;
+                            `Conexión interna: ${sourceNode.data('router')} -> ${targetNode.data('label')}` :
+                            `Subred: ${weight}<br>Origen: ${sourceNode.data('router')} (${sourceNode.data('label')}, ${sourceIp}, ${sourceOctet})<br>Destino: ${targetNode.data('router')} (${targetNode.data('label')}, ${targetIp}, ${targetOctet})`;
 
                         const tip = tippy(popperDiv, {
                             content: tooltipContent,

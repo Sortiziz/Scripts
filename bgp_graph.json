@@ -6,7 +6,7 @@
         {"data": {"id": "R2", "label": "R2", "parent": "AS2", "interfaces": {"eth2": "192.168.1.2/30", "eth0": "192.168.2.1/30"}}},
         {"data": {"id": "AS3", "label": "AS3"}},
         {"data": {"id": "R3", "label": "R3", "parent": "AS2", "interfaces": {"eth0": "192.168.2.2/30"}}},
-        {"data": {"id": "R4", "label": "R4", "parent": "AS3", "interfaces": {"eth0": "192.168.3.2/30"}}}
+        {"data": {"id": "R4", "label": "R4", "parent": "AS3", "interfaces": {"eth0": "192.168.3.1/30"}}}
     ],
     "edges": [
         {"data": {"source": "R1", "target": "R2", "weight": "192.168.1.0/30", "sourceInterface": "eth1", "targetInterface": "eth2"}},
