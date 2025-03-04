@@ -342,13 +342,19 @@
                         layout: {
                             name: 'cose',
                             fit: true,
-                            padding: 50,
-                            componentSpacing: 150,
-                            nodeRepulsion: 400000,
-                            idealEdgeLength: 200, // Ajustado para mejor posicionamiento
-                            nodeOverlap: 20,
+                            padding: 30, // Reducido para un ajuste más cercano
+                            componentSpacing: 50, // Reducido para minimizar la separación entre componentes
+                            nodeRepulsion: 200000, // Reducido para acercar los nodos
+                            idealEdgeLength: 80, // Reducido para que los nodos estén más cerca
+                            nodeOverlap: 10, // Ajustado para evitar superposiciones y mantener compacto
                             animate: true
                         }
+                    });
+
+                    // Establecer un zoom inicial más cercano después de cargar
+                    cy.on('layoutstop', () => {
+                        cy.zoom(1.5); // Zoom inicial más cercano (ajusta este valor según necesites)
+                        cy.center(); // Centrar el grafo
                     });
 
                     // Depuración
