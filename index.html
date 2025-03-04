@@ -112,6 +112,7 @@
     <script>
         let cy;
         let selectedAs = null;
+        let edgeLabelStates = new Map(); // Mapa para rastrear el estado de las etiquetas (host o IP completa)
 
         // Mostrar mensaje de carga
         document.getElementById('loading').style.display = 'block';
@@ -170,6 +171,47 @@
                 return parts[3].split('/')[0]; // Extrae solo el último octeto antes de "/"
             }
             return 'N/A';
+        }
+
+        // Función para alternar entre mostrar el número del host y la IP completa
+        function toggleEdgeLabel(edge) {
+            const edgeId = edge.id();
+            if (!edgeLabelStates.has(edgeId)) {
+                edgeLabelStates.set(edgeId, 'host'); // Estado inicial: mostrar solo el host
+            }
+
+            const currentState = edgeLabelStates.get(edgeId);
+            let newLabel;
+
+            if (currentState === 'host') {
+                // Mostrar IP completa
+                const sourceNode = edge.source();
+                const targetNode = edge.target();
+                const sourceIp = sourceNode.data('ip') || 'N/A';
+                const targetIp = targetNode.data('ip') || 'N/A';
+                newLabel = {
+                    'source-label': sourceIp,
+                    'target-label': targetIp
+                };
+                edgeLabelStates.set(edgeId, 'full');
+                console.log(`Mostrando IP completa para enlace ${edgeId}:`, newLabel);
+            } else {
+                // Mostrar número del host con punto
+                const sourceNode = edge.source();
+                const targetNode = edge.target();
+                const sourceIp = sourceNode.data('ip') || 'N/A';
+                const targetIp = targetNode.data('ip') || 'N/A';
+                const sourceHost = getHostNumber(sourceIp);
+                const targetHost = getHostNumber(targetIp);
+                newLabel = {
+                    'source-label': sourceHost ? `.${sourceHost}` : 'Sin IP',
+                    'target-label': targetHost ? `.${targetHost}` : 'Sin IP'
+                };
+                edgeLabelStates.set(edgeId, 'host');
+                console.log(`Mostrando número del host para enlace ${edgeId}:`, newLabel);
+            }
+
+            edge.style(newLabel);
         }
 
         fetch('bgp_graph.json')
@@ -406,7 +448,7 @@
                                                 const sourceIp = sourceNode.data('ip');
                                                 console.log(`IP del nodo fuente ${sourceId}: ${sourceIp} (tipo: ${typeof sourceIp})`);
                                                 if (sourceIp && sourceIp !== '') { // Verificar si sourceIp existe y no está vacío
-                                                    return getHostNumber(sourceIp); // Mostrar solo el número del host
+                                                    return `.${getHostNumber(sourceIp)}`; // Mostrar solo el número del host con un punto delante
                                                 } else {
                                                     console.error(`IP no encontrada o vacía para nodo fuente ${sourceId}, datos del nodo:`, sourceNode.data());
                                                     // Verificar si el nodo tiene datos de interfaz o router que podrían contener la IP
@@ -421,7 +463,7 @@
                                                             const ipFromRouter = routerInterfaces[interfaceName];
                                                             console.log(`IP encontrada en router para interfaz ${interfaceName}: ${ipFromRouter}`);
                                                             if (ipFromRouter && ipFromRouter !== '') {
-                                                                return getHostNumber(ipFromRouter); // Mostrar solo el número del host
+                                                                return `.${getHostNumber(ipFromRouter)}`; // Mostrar solo el número del host con un punto delante
                                                             }
                                                         }
                                                     }
@@ -442,7 +484,7 @@
                                                 const targetIp = targetNode.data('ip');
                                                 console.log(`IP del nodo destino ${targetId}: ${targetIp} (tipo: ${typeof targetIp})`);
                                                 if (targetIp && targetIp !== '') { // Verificar si targetIp existe y no está vacío
-                                                    return getHostNumber(targetIp); // Mostrar solo el número del host
+                                                    return `.${getHostNumber(targetIp)}`; // Mostrar solo el número del host con un punto delante
                                                 } else {
                                                     console.error(`IP no encontrada o vacía para nodo destino ${targetId}, datos del nodo:`, targetNode.data());
                                                     // Verificar si el nodo tiene datos de interfaz o router que podrían contener la IP
@@ -457,7 +499,7 @@
                                                             const ipFromRouter = routerInterfaces[interfaceName];
                                                             console.log(`IP encontrada en router para interfaz ${interfaceName}: ${ipFromRouter}`);
                                                             if (ipFromRouter && ipFromRouter !== '') {
-                                                                return getHostNumber(ipFromRouter); // Mostrar solo el número del host
+                                                                return `.${getHostNumber(ipFromRouter)}`; // Mostrar solo el número del host con un punto delante
                                                             }
                                                         }
                                                     }
@@ -547,6 +589,12 @@
                     console.log("Nodos cargados en Cytoscape después del layout:", cy.nodes().map(n => ({ id: n.id(), ip: n.data('ip'), label: n.data('label'), type: n.data('type'), position: n.position() })));
                     console.log("Enlaces cargados en Cytoscape:", cy.edges().map(e => e.data()));
 
+                    // Añadir evento de clic para toggle en los enlaces visibles
+                    cy.edges('[!invisible]').on('click', evt => {
+                        const edge = evt.target;
+                        toggleEdgeLabel(edge);
+                    });
+
                     // Ocultar mensaje de carga
                     document.getElementById('loading').style.display = 'none';
 
@@ -609,7 +657,7 @@
                         if (node.data('type') === 'interface') {
                             const ip = node.data('ip') || 'N/A';
                             const hostNumber = getHostNumber(ip); // Usar solo el número del host
-                            tooltipContent = `Interfaz: ${node.data('label')}<br>Router: ${node.data('router')}<br>IP: ${ip} (Host: ${hostNumber})`;
+                            tooltipContent = `Interfaz: ${node.data('label')}<br>Router: ${node.data('router')}<br>IP: ${ip} (Host: .${hostNumber})`;
                         } else {
                             tooltipContent = `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`;
                         }
@@ -655,7 +703,7 @@
 
                         const tooltipContent = edge.data('invisible') ?
                             `Conexión interna: ${sourceNode.data('router')} -> ${targetNode.data('label')}` :
-                            `Subred: ${weight}<br>Origen: ${sourceNode.data('router')} (${sourceNode.data('label')}, ${sourceIp}, Host: ${sourceHostNumber})<br>Destino: ${targetNode.data('router')} (${targetNode.data('label')}, ${targetIp}, Host: ${targetHostNumber})`;
+                            `Subred: ${weight}<br>Origen: ${sourceNode.data('router')} (${sourceNode.data('label')}, ${sourceIp}, Host: .${sourceHostNumber})<br>Destino: ${targetNode.data('router')} (${targetNode.data('label')}, ${targetIp}, Host: .${targetHostNumber})`;
 
                         const tip = tippy(popperDiv, {
                             content: tooltipContent,
