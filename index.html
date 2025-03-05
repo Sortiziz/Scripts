@@ -4,109 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapa de Rutas BGP</title>
-    <!-- Bibliotecas locales -->
     <script src="lib/cytoscape.min.js"></script>
     <script src="lib/jquery.min.js"></script>
     <script src="lib/popper.min.js"></script>
     <script src="lib/tippy-bundle.umd.min.js"></script>
     <link rel="stylesheet" href="lib/tippy.css"/>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f0f0f0;
-            position: relative; /* Asegurar que el cuerpo sea el contenedor raíz para z-index */
-        }
-        #cy {
-            width: 100%;
-            height: 80vh;
-            border: 1px solid #ccc;
-            background-color: #fff;
-            position: relative; /* Asegurar que Cytoscape no interfiera con el z-index */
-        }
-        #color-modal {
-            width: 250px;
-            border-radius: 8px;
-            border: 1px solid #ccc;
-            padding: 15px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            z-index: 2000; /* Aumentar el z-index para priorizar sobre otros elementos */
-            position: absolute;
-            background: white;
-            display: none;
-            transition: opacity 0.3s ease;
-            opacity: 0;
-        }
-        #color-modal.show {
-            display: block !important; /* Forzar display block para evitar conflictos */
-            opacity: 1 !important; /* Forzar opacidad para asegurar visibilidad */
-        }
-        #color-modal input[type="color"] {
-            vertical-align: middle;
-            margin-right: 10px;
-        }
-        #color-modal button {
-            margin-top: 10px;
-            margin-right: 5px;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            background-color: #007bff;
-            color: white;
-        }
-        #color-modal button:hover {
-            background-color: #0056b3;
-        }
-        #popper-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            pointer-events: none;
-            z-index: 1500; /* Asegurar que esté por debajo del modal pero por encima de Cytoscape */
-        }
-        .loading {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 18px;
-            color: #333;
-            z-index: 1000; /* Asegurar que esté visible sobre todo */
-        }
-        #controls {
-            margin-top: 10px;
-            z-index: 1100; /* Asegurar que los controles estén visibles */
-        }
-        #save-btn, #reset-positions-btn, #reset-colors-btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-right: 10px;
-        }
-        #save-btn {
-            background-color: #28a745;
-            color: white;
-        }
-        #save-btn:hover {
-            background-color: #218838;
-        }
-        #reset-positions-btn {
-            background-color: #dc3545;
-            color: white;
-        }
-        #reset-positions-btn:hover {
-            background-color: #c82333;
-        }
-        #reset-colors-btn {
-            background-color: #ffc107;
-            color: black;
-        }
-        #reset-colors-btn:hover {
-            background-color: #e0a800;
-        }
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f0f0; }
+        #cy { width: 100%; height: 80vh; border: 1px solid #ccc; background-color: #fff; }
+        #color-modal { width: 250px; border-radius: 8px; border: 1px solid #ccc; padding: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 2000; position: absolute; background: white; display: none; transition: opacity 0.3s ease; }
+        #color-modal.show { display: block; opacity: 1; }
+        #color-modal input[type="color"] { vertical-align: middle; margin-right: 10px; }
+        #color-modal button { margin-top: 10px; margin-right: 5px; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; background-color: #007bff; color: white; }
+        #color-modal button:hover { background-color: #0056b3; }
+        #popper-container { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 1500; }
+        .loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 18px; color: #333; z-index: 1000; }
+        #controls { margin-top: 10px; }
+        #save-btn, #reset-positions-btn, #reset-colors-btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+        #save-btn { background-color: #28a745; color: white; }
+        #save-btn:hover { background-color: #218838; }
+        #reset-positions-btn { background-color: #dc3545; color: white; }
+        #reset-positions-btn:hover { background-color: #c82333; }
+        #reset-colors-btn { background-color: #ffc107; color: black; }
+        #reset-colors-btn:hover { background-color: #e0a800; }
     </style>
 </head>
 <body>
@@ -119,930 +39,395 @@
         <button id="reset-positions-btn">Resetear Posiciones</button>
         <button id="reset-colors-btn">Resetear Colores</button>
     </div>
-    
     <div id="color-modal">
         <h4>Selecciona el color para este elemento</h4>
         <label for="color-input">Color: </label>
         <input type="color" id="color-input">
         <br><br>
-        <button onclick="applyColor()">Aplicar</button>
-        <button onclick="hideColorModal()">Cancelar</button>
+        <button id="apply-color-btn">Aplicar</button>
+        <button id="cancel-color-btn">Cancelar</button>
     </div>
-
     <div id="popper-container"></div>
     <div id="loading" class="loading">Cargando mapa...</div>
 
     <script>
+        const DEBUG = true;
+        const log = (...args) => DEBUG && console.log(...args);
         let cy;
-        let selectedElement = null; // Cambiado de selectedAs a selectedElement para manejar todos los tipos de elementos
-        let edgeLabelStates = new Map(); // Mapa para rastrear el estado de las etiquetas (host o IP completa)
-        let isModalClosing = false; // Flag para evitar conflictos de timing con el modal
 
-        // Mostrar mensaje de carga
-        document.getElementById('loading').style.display = 'block';
+        // Utilidades
+        const getRandomPosition = () => ({
+            x: Math.floor(Math.random() * 800) + 100,
+            y: Math.floor(Math.random() * 600) + 100,
+        });
 
-        // Función para validar datos
-        function validateGraphData(data) {
+        const rgbToHex = (rgb) => {
+            if (!rgb || typeof rgb !== "string") return "#ddd";
+            const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+            if (!match) return "#ddd";
+            const [_, r, g, b] = match;
+            return `#${[r, g, b].map(x => parseInt(x).toString(16).padStart(2, "0")).join("")}`;
+        };
+
+        const getHostNumber = (ip) => {
+            if (!ip || typeof ip !== "string") return "N/A";
+            const parts = ip.split(".");
+            return parts.length >= 4 ? parts[3].split("/")[0] : "N/A";
+        };
+
+        // Validación de datos
+        const validateGraphData = (data) => {
             if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
-                throw new Error('Formato de bgp_graph.json inválido');
+                throw new Error("Formato de bgp_graph.json inválido");
             }
-            data.nodes.forEach(node => {
-                if (node.data.parent && !node.data.interfaces) {
-                    console.warn(`Nodo ${node.data.id} tiene parent pero no interfaces`);
+            const nodeIds = new Set(data.nodes.map(n => n.data.id));
+            data.edges.forEach(edge => {
+                const { source, target, sourceInterface, targetInterface } = edge.data;
+                if (!nodeIds.has(source) || !nodeIds.has(target)) {
+                    throw new Error(`Enlace inválido: ${source} o ${target} no existen`);
+                }
+                const sourceNode = data.nodes.find(n => n.data.id === source);
+                const targetNode = data.nodes.find(n => n.data.id === target);
+                if (sourceNode.data.interfaces && !sourceNode.data.interfaces[sourceInterface]) {
+                    throw new Error(`Interfaz ${sourceInterface} no encontrada en ${source}`);
+                }
+                if (targetNode.data.interfaces && !targetNode.data.interfaces[targetInterface]) {
+                    throw new Error(`Interfaz ${targetInterface} no encontrada en ${target}`);
                 }
             });
+            log("Datos validados:", { nodes: data.nodes.length, edges: data.edges.length });
             return true;
-        }
+        };
 
-        // Función para generar posiciones aleatorias dentro de un rango
-        function getRandomPosition() {
-            return {
-                x: Math.floor(Math.random() * 800) + 100, // Rango entre 100 y 900
-                y: Math.floor(Math.random() * 600) + 100  // Rango entre 100 y 700
-            };
-        }
-
-        // Función para resetear posiciones al layout automático
-        function resetPositions() {
-            if (cy) {
-                cy.layout({
-                    name: 'cose',
-                    fit: true,
-                    padding: 50,
-                    componentSpacing: 100, // Espacio general entre componentes (AS, routers, interfaces)
-                    nodeRepulsion: 400000,
-                    idealEdgeLength: (edge) => {
-                        // Ajustar dinámicamente según el tipo de borde
-                        if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical' && edge.data('hierarchicalType') === 'routerToInterface') {
-                            // Bordes jerárquicos entre routers e interfaces
-                            console.log(`Ajustando idealEdgeLength para routerToInterface a: ${routerInterfaceEdgeLength}`);
-                            return routerInterfaceEdgeLength; // Usar valor personalizado para routers-interfaces
-                        } else if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical') {
-                            // Bordes jerárquicos entre AS y routers
-                            console.log(`Ajustando idealEdgeLength para asToRouter a: 50`);
-                            return 50; // Valor predeterminado para AS a routers (puedes ajustarlo también)
-                        }
-                        console.log(`Ajustando idealEdgeLength para otros bordes a: 150`);
-                        return 150; // Valor predeterminado para otros bordes (subredes)
-                    },
-                    nodeOverlap: 20,
-                    edgeElasticity: 100,
-                    animate: true,
-                    animationDuration: 1000
-                }).run();
-                console.log("Posiciones reseteadas al layout automático (cose) con routerInterfaceEdgeLength:", routerInterfaceEdgeLength);
-            }
-        }
-
-        // Función para resetear colores a valores predeterminados
-        function resetColors() {
-            if (cy) {
-                cy.nodes('[!parent]').style('background-color', '#ddd'); // AS
-                cy.nodes('[parent][!type]').style('background-color', '#00FF00'); // Routers
-                cy.nodes('[type="interface"]').style('background-color', '#FFA500'); // Interfaces
-                cy.edges('[!invisible][type!="hierarchical"]').style('line-color', '#000'); // Enlaces visibles
-
-                // Guardar colores predeterminados en data para persistencia
-                cy.nodes().forEach(node => {
-                    const defaultColor = node.data('type') === 'interface' ? '#FFA500' : (node.data.parent ? '#00FF00' : '#ddd');
-                    node.data('color', defaultColor);
-                    console.log(`Color reseteado para nodo ${node.id()} a: ${defaultColor}`);
-                });
-                cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => {
-                    edge.data('color', '#000');
-                    console.log(`Color reseteado para enlace ${edge.id()} a: #000`);
-                });
-                console.log("Colores reseteados a valores predeterminados");
-            }
-        }
-
-        // Función para guardar posiciones y colores en localStorage
-        function saveData() {
-            const positions = {};
-            const colors = {
-                nodes: {},
-                edges: {}
-            };
-            cy.nodes().forEach(node => {
-                positions[node.id()] = node.position();
-                const color = node.style('background-color') || '#ddd'; // Obtener color del nodo (cambiado a #ddd para consistencia con AS)
-                colors.nodes[node.id()] = rgbToHex(color); // Convertir a hexadecimal
-                console.log(`Guardando posición y color para nodo ${node.id()}:`, { position: node.position(), color: colors.nodes[node.id()], data: node.data() });
-            });
-            cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => { // Solo guardar colores de enlaces visibles (no jerárquicos)
-                const color = edge.style('line-color') || '#000'; // Obtener color del enlace
-                colors.edges[edge.id()] = rgbToHex(color); // Convertir a hexadecimal
-                console.log(`Guardando color para enlace ${edge.id()}:`, { color: colors.edges[edge.id()], data: edge.data() });
-            });
-            const savedData = {
-                positions: positions,
-                colors: colors
-            };
-            localStorage.setItem('bgpNodeData', JSON.stringify(savedData));
-            alert('Datos guardados correctamente (posiciones y colores).');
-            console.log("Datos guardados:", savedData);
-        }
-
-        // Función para cargar posiciones y colores desde localStorage
-        function loadData(nodesData) {
-            const savedData = localStorage.getItem('bgpNodeData');
-            console.log("Datos guardados en localStorage:", savedData);
-            if (savedData) {
-                const data = JSON.parse(savedData);
-                console.log("Datos parseados:", data);
-                return nodesData.map(node => {
-                    console.log(`Verificando datos para nodo ${node.data.id}, datos actuales:`, node.data);
-                    const nodeId = node.data.id;
-                    if (data.positions && data.positions[nodeId]) {
-                        console.log(`Aplicando posición a nodo ${nodeId}:`, data.positions[nodeId], 'Datos antes de aplicar posición:', node.data);
-                        node.position = { ...data.positions[nodeId] }; // Asegurar que sea un objeto con x e y
-                    } else {
-                        console.warn(`No se encontró posición guardada para nodo ${nodeId}, usando posición aleatoria`);
-                        node.position = getRandomPosition(); // Posición aleatoria si no hay datos guardados
-                    }
-                    if (data.colors && data.colors.nodes && data.colors.nodes[nodeId]) {
-                        console.log(`Aplicando color a nodo ${nodeId}:`, data.colors.nodes[nodeId]);
-                        node.data.color = data.colors.nodes[nodeId]; // Guardar color en data para futura referencia
-                    } else {
-                        console.log(`No se encontró color guardado para nodo ${nodeId}, usando color predeterminado`);
-                        node.data.color = node.data.type === 'interface' ? '#FFA500' : (node.data.parent ? '#00FF00' : '#ddd');
-                    }
-                    return node;
-                });
-            }
-            console.log("No hay datos guardados en localStorage, usando posiciones y colores predeterminados");
-            return nodesData.map(node => {
-                node.position = getRandomPosition(); // Posición aleatoria si no hay datos guardados
-                node.data.color = node.data.type === 'interface' ? '#FFA500' : (node.data.parent ? '#00FF00' : '#ddd');
-                return node;
-            });
-        }
-
-        // Función para añadir bordes jerárquicos (AS -> routers, routers -> interfaces)
-        function addHierarchicalEdges(nodes, edges) {
-            const hierarchicalEdges = [];
+        // Procesamiento de datos
+        const generateInterfaceNodes = (nodes) => {
+            const interfaceNodes = [];
             nodes.forEach(node => {
-                if (node.data.parent && !node.data.type) { // Routers dentro de un AS
-                    hierarchicalEdges.push({
-                        data: {
-                            source: node.data.parent,
-                            target: node.data.id,
-                            weight: 10, // Peso mayor para priorizar jerarquía
-                            type: 'hierarchical',
-                            invisible: true,
-                            hierarchicalType: 'asToRouter' // Etiqueta para diferenciar
-                        }
+                if (node.data.interfaces) {
+                    const routerId = node.data.id;
+                    const parent = node.data.parent;
+                    Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
+                        const intfId = `${routerId}_${intfName}`;
+                        interfaceNodes.push({
+                            data: { id: intfId, label: intfName, type: "interface", router: routerId, ip, parent, color: "#FFA500" },
+                            position: getRandomPosition(),
+                        });
                     });
                 }
-                if (node.data.type === 'interface' && node.data.router) { // Interfaces conectadas a routers
+            });
+            return interfaceNodes;
+        };
+
+        const transformEdges = (edges, interfaceNodes) => {
+            return edges.map(edge => {
+                const { source, target, sourceInterface, targetInterface, weight } = edge.data;
+                const sourceIntfId = `${source}_${sourceInterface}`;
+                const targetIntfId = `${target}_${targetInterface}`;
+                if (!interfaceNodes.some(n => n.data.id === sourceIntfId) || !interfaceNodes.some(n => n.data.id === targetIntfId)) {
+                    log(`Advertencia: Interfaces ${sourceIntfId} o ${targetIntfId} no generadas`);
+                    return null;
+                }
+                return { data: { source: sourceIntfId, target: targetIntfId, weight, color: "#000" } };
+            }).filter(Boolean);
+        };
+
+        const addHierarchicalEdges = (nodes, edges) => {
+            const hierarchicalEdges = [];
+            nodes.forEach(node => {
+                if (node.data.parent && !node.data.type) {
                     hierarchicalEdges.push({
-                        data: {
-                            source: node.data.router,
-                            target: node.data.id,
-                            weight: 10, // Peso mayor para priorizar jerarquía
-                            type: 'hierarchical',
-                            invisible: true,
-                            hierarchicalType: 'routerToInterface' // Etiqueta para diferenciar
-                        }
+                        data: { source: node.data.parent, target: node.data.id, type: "hierarchical", invisible: true },
+                    });
+                }
+                if (node.data.type === "interface" && node.data.router) {
+                    hierarchicalEdges.push({
+                        data: { source: node.data.router, target: node.data.id, type: "router-interface", invisible: false },
                     });
                 }
             });
             return edges.concat(hierarchicalEdges);
-        }
+        };
 
-        // Variable global para ajustar el espacio entre routers e interfaces
-        let routerInterfaceEdgeLength = 1; // Valor predeterminado, puedes modificarlo aquí o dinámicamente
-
-        // Función para extraer el número del host (último octeto) de una IP
-        function getHostNumber(ip) {
-            if (!ip || typeof ip !== 'string') return 'N/A';
-            const parts = ip.split('.');
-            if (parts.length >= 4) {
-                return parts[3].split('/')[0]; // Extrae solo el último octeto antes de "/"
-            }
-            return 'N/A';
-        }
-
-        // Función para convertir RGB a hexadecimal
-        function rgbToHex(rgb) {
-            if (!rgb || typeof rgb !== 'string') return '#ddd'; // Valor por defecto si no hay color (cambiado a #ddd para consistencia con AS)
-            const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-            if (!match) return '#ddd'; // Valor por defecto si el formato no es válido
-            const [_, r, g, b] = match;
-            return `#${[r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('')}`;
-        }
-
-        // Función para alternar entre mostrar el número del host y la IP completa
-        function toggleEdgeLabel(edge) {
-            const edgeId = edge.id();
-            if (!edgeLabelStates.has(edgeId)) {
-                edgeLabelStates.set(edgeId, 'host'); // Estado inicial: mostrar solo el host
-            }
-
-            const currentState = edgeLabelStates.get(edgeId);
-            let newLabel;
-
-            if (currentState === 'host') {
-                // Mostrar IP completa
-                const sourceNode = edge.source();
-                const targetNode = edge.target();
-                const sourceIp = sourceNode.data('ip') || 'N/A';
-                const targetIp = targetNode.data('ip') || 'N/A';
-                newLabel = {
-                    'source-label': sourceIp,
-                    'target-label': targetIp
-                };
-                edgeLabelStates.set(edgeId, 'full');
-                console.log(`Mostrando IP completa para enlace ${edgeId}:`, newLabel);
-            } else {
-                // Mostrar número del host con punto
-                const sourceNode = edge.source();
-                const targetNode = edge.target();
-                const sourceIp = sourceNode.data('ip') || 'N/A';
-                const targetIp = targetNode.data('ip') || 'N/A';
-                const sourceHost = getHostNumber(sourceIp);
-                const targetHost = getHostNumber(targetIp);
-                newLabel = {
-                    'source-label': sourceHost ? `.${sourceHost}` : 'Sin IP',
-                    'target-label': targetHost ? `.${targetHost}` : 'Sin IP'
-                };
-                edgeLabelStates.set(edgeId, 'host');
-                console.log(`Mostrando número del host para enlace ${edgeId}:`, newLabel);
-            }
-
-            edge.style(newLabel);
-        }
-
-        fetch('bgp_graph.json')
-            .then(response => {
-                if (!response.ok) throw new Error(`No se pudo cargar bgp_graph.json: ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                try {
-                    validateGraphData(data);
-
-                    // Depuración: Mostrar datos originales del JSON
-                    console.log("Datos originales del JSON:", data);
-
-                    // Generar nodos de interfaz dinámicamente con IDs únicos
-                    const interfaceNodes = [];
-                    const interfaceEdges = [];
-                    data.nodes.forEach(node => {
-                        if (node.data.interfaces) {
-                            const routerId = node.data.id;
-                            const parent = node.data.parent;
-                            console.log(`Procesando nodo router: ${routerId}, interfaces:`, node.data.interfaces);
-                            Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
-                                const intfId = `${routerId}_${intfName}`; // Usar formato único: router_interfaz (e.g., "R2_eth0")
-                                console.log(`Generando nodo de interfaz: ${intfId}, IP: ${ip}`);
-                                interfaceNodes.push({
-                                    data: {
-                                        id: intfId,
-                                        label: intfName, // Mantén el nombre original para la visualización (e.g., "eth0")
-                                        type: 'interface',
-                                        router: routerId,
-                                        ip: ip, // Asegurarse de que el campo 'ip' esté explícitamente asignado
-                                        parent: parent,
-                                        color: '#FFA500' // Color predeterminado para interfaces
-                                    }
-                                });
-                                interfaceEdges.push({
-                                    data: {
-                                        source: routerId,
-                                        target: intfId,
-                                        invisible: true
-                                    }
-                                });
-                            });
-                        }
-                    });
-
-                    // Depuración: Mostrar nodos de interfaz generados con sus datos completos
-                    console.log("Nodos de interfaz generados:", interfaceNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, color: n.data.color })));
-
-                    // Transformar enlaces de routers a interfaces con IDs únicos
-                    const transformedEdges = data.edges.map(edge => {
-                        const sourceRouter = edge.data.source;
-                        const targetRouter = edge.data.target;
-                        const sourceInterface = edge.data.sourceInterface;
-                        const targetInterface = edge.data.targetInterface;
-                        const weight = edge.data.weight;
-
-                        // Depuración
-                        console.log(`Transformando enlace: ${sourceRouter} (${sourceInterface}) -> ${targetRouter} (${targetInterface})`);
-
-                        // Verificar que las interfaces existan en los nodos generados
-                        const sourceIntfId = `${sourceRouter}_${sourceInterface}`; // Usar formato único (e.g., "R2_eth0")
-                        const targetIntfId = `${targetRouter}_${targetInterface}`; // Usar formato único (e.g., "R3_eth0")
-
-                        // Verificar que las interfaces existan antes de crear el enlace
-                        let sourceNodeExists = interfaceNodes.some(n => n.data.id === sourceIntfId && n.data.router === sourceRouter);
-                        let targetNodeExists = interfaceNodes.some(n => n.data.id === targetIntfId && n.data.router === targetRouter);
-
-                        // Depuración: Verificar existencia de nodos y sus IPs
-                        const sourceNode = interfaceNodes.find(n => n.data.id === sourceIntfId);
-                        const targetNode = interfaceNodes.find(n => n.data.id === targetIntfId);
-                        console.log(`Nodo fuente ${sourceIntfId} existe: ${sourceNodeExists}, IP: ${sourceNode ? sourceNode.data.ip : 'No encontrado'}`);
-                        console.log(`Nodo destino ${targetIntfId} existe: ${targetNodeExists}, IP: ${targetNode ? targetNode.data.ip : 'No encontrado'}`);
-
-                        // Generar dinámicamente nodos de interfaz faltantes
-                        if (!sourceNodeExists) {
-                            const ip = data.nodes.find(n => n.data.id === sourceRouter)?.data.interfaces?.[sourceInterface];
-                            if (ip) {
-                                console.log(`Interfaz no encontrada: source=${sourceIntfId} (router=${sourceRouter}), generando dinámicamente...`);
-                                interfaceNodes.push({
-                                    data: {
-                                        id: sourceIntfId,
-                                        label: sourceInterface,
-                                        type: 'interface',
-                                        router: sourceRouter,
-                                        ip: ip,
-                                        parent: data.nodes.find(n => n.data.id === sourceRouter)?.data.parent,
-                                        color: '#FFA500' // Color predeterminado para interfaces
-                                    }
-                                });
-                                interfaceEdges.push({
-                                    data: {
-                                        source: sourceRouter,
-                                        target: sourceIntfId,
-                                        invisible: true
-                                    }
-                                });
-                                sourceNodeExists = true;
-                                console.log(`Nodo de interfaz generado dinámicamente: ${sourceIntfId} (router=${sourceRouter}, ip=${ip}, color=${'#FFA500'})`);
-                            }
-                        }
-                        if (!targetNodeExists) {
-                            const ip = data.nodes.find(n => n.data.id === targetRouter)?.data.interfaces?.[targetInterface];
-                            if (ip) {
-                                console.log(`Interfaz no encontrada: target=${targetIntfId} (router=${targetRouter}), generando dinámicamente...`);
-                                interfaceNodes.push({
-                                    data: {
-                                        id: targetIntfId,
-                                        label: targetInterface,
-                                        type: 'interface',
-                                        router: targetRouter,
-                                        ip: ip,
-                                        parent: data.nodes.find(n => n.data.id === targetRouter)?.data.parent,
-                                        color: '#FFA500' // Color predeterminado para interfaces
-                                    }
-                                });
-                                interfaceEdges.push({
-                                    data: {
-                                        source: targetRouter,
-                                        target: targetIntfId,
-                                        invisible: true
-                                    }
-                                });
-                                targetNodeExists = true;
-                                console.log(`Nodo de interfaz generado dinámicamente: ${targetIntfId} (router=${targetRouter}, ip=${ip}, color=${'#FFA500'})`);
-                            }
-                        }
-
-                        return {
-                            data: {
-                                source: sourceIntfId,
-                                target: targetIntfId,
-                                weight: weight,
-                                color: '#000' // Color predeterminado para enlaces
-                            }
-                        };
-                    }).filter(edge => edge !== null); // Filtrar enlaces nulos
-
-                    // Depuración: Mostrar enlaces transformados con colores
-                    console.log("Enlaces transformados:", transformedEdges.map(e => ({ data: e.data, color: e.data.color })));
-
-                    // Combinar nodos y enlaces originales con los generados
-                    const allNodes = data.nodes.concat(interfaceNodes);
-                    let allEdges = interfaceEdges.concat(transformedEdges);
-
-                    // Añadir bordes jerárquicos para la estructura (AS -> routers, routers -> interfaces)
-                    allEdges = addHierarchicalEdges(allNodes, allEdges);
-
-                    // Depuración: Mostrar todos los nodos combinados con sus IPs, colores y posiciones
-                    console.log("Todos los nodos combinados:", allNodes.map(n => ({ id: n.data.id, ip: n.data.ip, label: n.data.label, type: n.data.type, color: n.data.color })));
-                    console.log("Todos los enlaces combinados (incluyendo jerárquicos):", allEdges.map(e => ({ data: e.data, color: e.data.color, type: e.data.type, hierarchicalType: e.data.hierarchicalType })));
-
-                    // Cargar datos guardados (posiciones y colores) y aplicarlas a los nodos antes de inicializar Cytoscape
-                    const nodesWithData = loadData(allNodes);
-
-                    // Verificar que todas las posiciones sean válidas antes de inicializar
-                    nodesWithData.forEach(node => {
-                        if (!node.position || !node.position.x || !node.position.y) {
-                            console.warn(`Posición inválida para nodo ${node.data.id}, usando posición aleatoria`);
-                            node.position = getRandomPosition(); // Posición aleatoria si no hay datos válidos
-                        }
-                    });
-
-                    // Determinar si usar layout automático o posiciones guardadas
-                    let usePreset = false;
-                    if (nodesWithData.every(node => node.position && node.position.x && node.position.y)) {
-                        usePreset = true;
-                        console.log("Usando layout preset con posiciones guardadas");
-                    } else {
-                        console.log("Usando layout cose con disposición automática");
-                    }
-
-                    // Depuración: Mostrar nodos con datos aplicados y verificar IPs, colores y posiciones después de cargar datos
-                    console.log("Nodos con datos aplicados (verificados):", nodesWithData.map(n => ({
-                        id: n.data.id,
-                        ip: n.data.ip,
-                        label: n.data.label,
-                        type: n.data.type,
-                        position: n.position,
-                        color: n.data.color
-                    })));
-
-                    cy = cytoscape({
-                        container: document.getElementById('cy'),
-                        elements: { nodes: nodesWithData, edges: allEdges },
-                        style: [
-                            {
-                                selector: 'node[parent][!type]', // Routers dentro de AS
-                                style: {
-                                    'background-color': (ele) => ele.data('color') || '#00FF00',
-                                    'shape': 'ellipse',
-                                    'width': 60,
-                                    'height': 60,
-                                    'label': 'data(label)',
-                                    'text-valign': 'center',
-                                    'text-halign': 'center',
-                                    'font-size': 14,
-                                    'color': '#000',
-                                    'border-width': 2,
-                                    'border-color': '#000',
-                                    'z-index': 5
-                                }
-                            },
-                            {
-                                selector: 'node[!parent]', // AS
-                                style: {
-                                    'shape': 'rectangle',
-                                    'background-color': (ele) => ele.data('color') || '#ddd',
-                                    'padding': 20,
-                                    'label': 'data(label)',
-                                    'font-size': 16,
-                                    'text-valign': 'top',
-                                    'text-halign': 'center',
-                                    'text-margin-y': -10,
-                                    'border-width': 2,
-                                    'border-color': '#000',
-                                    'border-style': 'dashed',
-                                    'z-index': 1
-                                }
-                            },
-                            {
-                                selector: 'node[type="interface"]', // Interfaces
-                                style: {
-                                    'background-color': (ele) => ele.data('color') || '#FFA500',
-                                    'shape': 'ellipse',
-                                    'width': 40,
-                                    'height': 40,
-                                    'label': 'data(label)', // Mostrar el nombre original (e.g., "eth0")
-                                    'text-valign': 'center',
-                                    'text-halign': 'center',
-                                    'font-size': 12,
-                                    'color': '#000',
-                                    'border-width': 1,
-                                    'border-color': '#000',
-                                    'z-index': 10
-                                }
-                            },
-                            {
-                                selector: 'edge[type="hierarchical"]', // Bordes jerárquicos invisibles
-                                style: {
-                                    'width': 1,
-                                    'line-color': '#000',
-                                    'opacity': 0, // Ocultar visualmente
-                                    'curve-style': 'bezier'
-                                }
-                            },
-                            {
-                                selector: 'edge[!invisible][type!="hierarchical"]', // Enlaces visibles (subredes)
-                                style: {
-                                    'width': 3,
-                                    'line-color': (ele) => ele.data('color') || '#000',
-                                    'curve-style': 'bezier',
-                                    'label': 'data(weight)', // Subred en el centro
-                                    'font-size': 14,
-                                    'color': '#00008B',
-                                    'text-background-color': '#FFFFFF',
-                                    'text-background-opacity': 0.9,
-                                    'text-background-padding': 3,
-                                    'source-label': ele => {
-                                        // Depuración: Mostrar datos del elemento y su nodo fuente
-                                        console.log(`Evaluando source-label para enlace: ${JSON.stringify(ele.data())}`);
-                                        const sourceId = ele.data('source');
-                                        if (cy && cy.getElementById) { // Verificar que cy está inicializado
-                                            const sourceNode = cy.getElementById(sourceId);
-                                            console.log(`Nodo fuente ${sourceId}:`, sourceNode.data());
-                                            if (sourceNode.length > 0) {
-                                                const sourceIp = sourceNode.data('ip');
-                                                console.log(`IP del nodo fuente ${sourceId}: ${sourceIp} (tipo: ${typeof sourceIp}, nodo: ${sourceNode.id()})`);
-                                                if (sourceIp && sourceIp !== '') { // Verificar si sourceIp existe y no está vacío
-                                                    return `.${getHostNumber(sourceIp)}`; // Mostrar solo el número del host con un punto delante
-                                                } else {
-                                                    // Intentar recuperar desde router sin warnings
-                                                    const routerId = sourceNode.data('router');
-                                                    if (routerId) {
-                                                        const routerNode = cy.getElementById(routerId);
-                                                        const routerInterfaces = routerNode ? routerNode.data('interfaces') : null;
-                                                        if (routerInterfaces) {
-                                                            const interfaceName = sourceId.split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
-                                                            const ipFromRouter = routerInterfaces[interfaceName];
-                                                            console.log(`IP encontrada en router para interfaz ${interfaceName}: ${ipFromRouter}`);
-                                                            if (ipFromRouter && ipFromRouter !== '') {
-                                                                return `.${getHostNumber(ipFromRouter)}`; // Mostrar solo el número del host con un punto delante
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida, sin warnings
-                                    },
-                                    'target-label': ele => {
-                                        // Depuración: Mostrar datos del elemento y su nodo destino
-                                        console.log(`Evaluando target-label para enlace: ${JSON.stringify(ele.data())}`);
-                                        const targetId = ele.data('target');
-                                        if (cy && cy.getElementById) { // Verificar que cy está inicializado
-                                            const targetNode = cy.getElementById(targetId);
-                                            console.log(`Nodo destino ${targetId}:`, targetNode.data());
-                                            if (targetNode.length > 0) {
-                                                const targetIp = targetNode.data('ip');
-                                                console.log(`IP del nodo destino ${targetId}: ${targetIp} (tipo: ${typeof targetIp}, nodo: ${targetNode.id()})`);
-                                                if (targetIp && targetIp !== '') { // Verificar si targetIp existe y no está vacío
-                                                    return `.${getHostNumber(targetIp)}`; // Mostrar solo el número del host con un punto delante
-                                                } else {
-                                                    // Intentar recuperar desde router sin warnings
-                                                    const routerId = targetNode.data('router');
-                                                    if (routerId) {
-                                                        const routerNode = cy.getElementById(routerId);
-                                                        const routerInterfaces = routerNode ? routerNode.data('interfaces') : null;
-                                                        if (routerInterfaces) {
-                                                            const interfaceName = targetId.split('_')[1]; // Extraer el nombre de la interfaz (e.g., "eth0")
-                                                            const ipFromRouter = routerInterfaces[interfaceName];
-                                                            console.log(`IP encontrada en router para interfaz ${interfaceName}: ${ipFromRouter}`);
-                                                            if (ipFromRouter && ipFromRouter !== '') {
-                                                                return `.${getHostNumber(ipFromRouter)}`; // Mostrar solo el número del host con un punto delante
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        return 'Sin IP'; // Mostrar "Sin IP" si no hay IP válida, sin warnings
-                                    },
-                                    'source-text-offset': 30,
-                                    'target-text-offset': 30,
-                                    'source-text-margin-y': -10,
-                                    'target-text-margin-y': -10,
-                                    'text-rotation': 'autorotate',
-                                    'font-size': 12,
-                                    'color': '#00008B'
-                                }
-                            },
-                            {
-                                selector: 'edge[invisible][type!="hierarchical"]', // Enlaces invisibles (conexiones router-interfaz)
-                                style: {
-                                    'width': 1,
-                                    'line-color': '#000', // Negro como solicitado
-                                    'opacity': 0.2 // Visible sutilmente para influir en el layout
-                                }
-                            }
-                        ],
-                        layout: usePreset ? {
-                            name: 'preset', // Usar preset si hay posiciones guardadas válidas
-                            fit: true,
-                            padding: 50
-                        } : {
-                            name: 'cose', // Usar cose para disposición automática lógica si no hay posiciones guardadas
-                            fit: true,
-                            padding: 50, // Aumentar padding para mayor espacio
-                            componentSpacing: 100, // Espacio general entre componentes (AS, routers, interfaces)
-                            nodeRepulsion: 400000, // Aumentar repulsión para evitar superposición
-                            idealEdgeLength: (edge) => {
-                                // Ajustar dinámicamente según el tipo de borde
-                                if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical' && edge.data('hierarchicalType') === 'routerToInterface') {
-                                    // Bordes jerárquicos entre routers e interfaces
-                                    console.log(`Ajustando idealEdgeLength para routerToInterface a: ${routerInterfaceEdgeLength}`);
-                                    return routerInterfaceEdgeLength; // Usar valor personalizado para routers-interfaces
-                                } else if (edge.data('weight') === 10 && edge.data('type') === 'hierarchical') {
-                                    // Bordes jerárquicos entre AS y routers
-                                    console.log(`Ajustando idealEdgeLength para asToRouter a: 50`);
-                                    return 50; // Valor predeterminado para AS a routers (puedes ajustarlo también)
-                                }
-                                console.log(`Ajustando idealEdgeLength para otros bordes a: 150`);
-                                return 150; // Valor predeterminado para otros bordes (subredes)
-                            },
-                            nodeOverlap: 20,
-                            edgeElasticity: 100,
-                            animate: true,
-                            animationDuration: 1000
-                        }
-                    });
-
-                    // Aplicar colores guardados a los nodos y enlaces después de inicializar
-                    cy.nodes().forEach(node => {
-                        if (node.data('color')) {
-                            node.style('background-color', node.data('color'));
-                            console.log(`Color aplicado al nodo ${node.id()}:`, node.data('color'));
-                        }
-                    });
-                    cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => { // Solo aplicar a enlaces visibles, no jerárquicos
-                        if (edge.data('color')) {
-                            edge.style('line-color', edge.data('color'));
-                            console.log(`Color aplicado al enlace ${edge.id()}:`, edge.data('color'));
-                        }
-                    });
-
-                    // Ocultar bordes jerárquicos visualmente después del layout
-                    cy.edges('[type="hierarchical"]').style('opacity', 0);
-
-                    // Refrescar los estilos para reflejar los cambios en data('ip') y colors antes de evaluar etiquetas
-                    cy.style().update();
-                    cy.edges().trigger('style'); // Disparar evento para actualizar estilos de enlaces
-                    console.log("Estilos actualizados después de forzar IPs y colores antes de evaluar etiquetas");
-
-                    // Refrescar el grafo para asegurar que las etiquetas y posiciones se rendericen correctamente
-                    cy.resize();
-                    console.log("Grafo redimensionado para actualizar etiquetas y posiciones");
-
-                    // Depuración: Verificar nodos después de forzar IPs y colores, refrescar estilos y redimensionar
-                    console.log("Nodos cargados en Cytoscape después de forzar IPs y colores, refrescar estilos y redimensionar:", cy.nodes().map(n => ({
-                        id: n.id(),
-                        ip: n.data('ip'),
-                        label: n.data('label'),
-                        type: n.data('type'),
-                        position: n.position(),
-                        color: n.style('background-color')
-                    })));
-
-                    // Añadir evento de clic para toggle en los enlaces visibles (no jerárquicos)
-                    cy.edges('[!invisible][type!="hierarchical"]').on('click', evt => {
-                        const edge = evt.target;
-                        toggleEdgeLabel(edge);
-                    });
-
-                    // Añadir evento de doble clic para cambiar color de nodos (AS, routers, interfaces) y enlaces visibles
-                    cy.on('dblclick', 'node, edge[!invisible][type!="hierarchical"]', evt => {
-                        console.log('Evento de doble clic detectado, isModalClosing:', isModalClosing, 'selectedElement:', selectedElement);
-                        if (isModalClosing) {
-                            console.log('Doble clic ignorado, el modal está cerrándose');
-                            return; // Ignorar doble clic si el modal está cerrándose
-                        }
-
-                        const element = evt.target;
-                        let pos;
-                        if (element.isNode()) {
-                            pos = element.renderedPosition();
-                        } else if (element.isEdge()) {
-                            pos = element.renderedMidpoint();
-                        }
-                        const modal = document.getElementById('color-modal');
-                        console.log('Elemento clicado:', {
-                            id: element.id(),
-                            type: element.isNode() ? 'node' : 'edge',
-                            data: element.data(),
-                            position: element.position(),
-                            style: element.style(),
-                            renderedPosition: pos
-                        });
-                        console.log('Modal DOM antes de mostrar:', {
-                            id: modal.id,
-                            display: window.getComputedStyle(modal).display,
-                            opacity: window.getComputedStyle(modal).opacity,
-                            className: modal.className,
-                            offsetWidth: modal.offsetWidth,
-                            offsetHeight: modal.offsetHeight,
-                            zIndex: window.getComputedStyle(modal).zIndex,
-                            position: window.getComputedStyle(modal).position
-                        });
-
-                        const modalWidth = modal.offsetWidth || 250; // Usar 250px si offsetWidth es 0
-                        const modalHeight = modal.offsetHeight || 180; // Usar 180px si offsetHeight es 0
-                        const canvasWidth = cy.width();
-                        const canvasHeight = cy.height();
-                        console.log('Dimensiones del canvas:', { canvasWidth, canvasHeight });
-
-                        let left = pos.x + 10;
-                        let top = pos.y - 10;
-                        if (left + modalWidth > canvasWidth) left = canvasWidth - modalWidth;
-                        if (top + modalHeight > canvasHeight) top = canvasHeight - modalHeight;
-                        if (left < 0) left = 0;
-                        if (top < 0) top = 0;
-
-                        console.log('Posición calculada para el modal:', { left, top });
-
-                        // Forzar la visibilidad del modal antes de la transición
-                        modal.style.display = 'block';
-                        modal.style.opacity = '0'; // Iniciar desde opacidad 0 para la transición
-                        modal.style.left = `${left}px`;
-                        modal.style.top = `${top}px`;
-
-                        // Usar setTimeout para dar tiempo al navegador a procesar los cambios
-                        setTimeout(() => {
-                            modal.classList.add('show');
-                            selectedElement = element.id();
-                            let currentColor;
-                            if (element.isNode()) {
-                                currentColor = element.style('background-color') || (element.data('type') === 'interface' ? '#FFA500' : '#00FF00');
-                            } else if (element.isEdge()) {
-                                currentColor = element.style('line-color') || '#000';
-                            }
-                            const hexColor = rgbToHex(currentColor); // Convertir a hexadecimal
-                            document.getElementById('color-input').value = hexColor;
-                            console.log(`Doble clic en ${element.isNode() ? 'nodo' : 'enlace'} ${element.id()}, color actual: ${currentColor}, convertido a: ${hexColor}, modal mostrado, isModalClosing: ${isModalClosing}, selectedElement: ${selectedElement}`);
-                            console.log('Estado del modal después de mostrar:', {
-                                display: window.getComputedStyle(modal).display,
-                                opacity: window.getComputedStyle(modal).opacity,
-                                className: modal.className,
-                                offsetWidth: modal.offsetWidth,
-                                offsetHeight: modal.offsetHeight,
-                                zIndex: window.getComputedStyle(modal).zIndex,
-                                position: window.getComputedStyle(modal).position
-                            });
-                        }, 0); // Retraso mínimo para permitir la actualización del DOM
-
-                        // Asegurar que el modal se muestre incluso si la transición falla
-                        if (!modal.classList.contains('show')) {
-                            console.warn('El modal no se mostró automáticamente, forzando visibilidad');
-                            modal.classList.add('show');
-                            modal.style.opacity = '1';
-                        }
-                    });
-
-                    // Tooltips para nodos
-                    const popperContainer = document.getElementById('popper-container');
-                    cy.nodes().forEach(node => {
-                        const popperDiv = document.createElement('div');
-                        popperDiv.style.position = 'absolute';
-                        popperDiv.style.width = '1px';
-                        popperDiv.style.height = '1px';
-                        popperContainer.appendChild(popperDiv);
-
-                        const updatePosition = () => {
-                            const pos = node.renderedPosition();
-                            const pan = cy.pan();
-                            const zoom = cy.zoom();
-                            popperDiv.style.left = `${(pos.x - pan.x) / zoom}px`;
-                            popperDiv.style.top = `${(pos.y - pan.y) / zoom}px`;
-                        };
-                        updatePosition();
-
-                        cy.on('pan zoom resize', updatePosition);
-                        node.on('position', updatePosition);
-
-                        let tooltipContent;
-                        if (node.data('type') === 'interface') {
-                            const ip = node.data('ip') || 'N/A';
-                            const hostNumber = getHostNumber(ip); // Usar solo el número del host
-                            tooltipContent = `Interfaz: ${node.data('label')}<br>Router: ${node.data('router')}<br>IP: ${ip} (Host: .${hostNumber})`;
-                        } else {
-                            tooltipContent = `ID: ${node.id()}<br>AS: ${node.data('parent') || 'N/A'}`;
-                        }
-                        const tip = tippy(popperDiv, {
-                            content: tooltipContent,
-                            theme: 'light',
-                            placement: 'top',
-                            trigger: 'manual',
-                            maxWidth: 200
-                        });
-
-                        node.on('mouseover', () => tip.show());
-                        node.on('mouseout', () => tip.hide());
-                    });
-
-                    // Tooltips para enlaces visibles (no jerárquicos)
-                    cy.edges('[!invisible][type!="hierarchical"]').forEach(edge => {
-                        const popperDiv = document.createElement('div');
-                        popperDiv.style.position = 'absolute';
-                        popperDiv.style.width = '1px';
-                        popperDiv.style.height = '1px';
-                        popperContainer.appendChild(popperDiv);
-
-                        const updatePosition = () => {
-                            const pos = edge.renderedMidpoint();
-                            const pan = cy.pan();
-                            const zoom = cy.zoom();
-                            popperDiv.style.left = `${(pos.x - pan.x) / zoom}px`;
-                            popperDiv.style.top = `${(pos.y - pan.y) / zoom}px`;
-                        };
-                        updatePosition();
-
-                        cy.on('pan zoom resize', updatePosition);
-                        edge.on('position', updatePosition);
-
-                        const sourceNode = cy.getElementById(edge.data('source'));
-                        const targetNode = cy.getElementById(edge.data('target'));
-                        const sourceIp = sourceNode.data('ip') || 'N/A';
-                        const targetIp = targetNode.data('ip') || 'N/A';
-                        const weight = edge.data('weight') || '';
-                        const sourceHostNumber = getHostNumber(sourceIp); // Usar solo el número del host
-                        const targetHostNumber = getHostNumber(targetIp); // Usar solo el número del host
-
-                        const tooltipContent = edge.data('invisible') ?
-                            `Conexión interna: ${sourceNode.data('router')} -> ${targetNode.data('label')}` :
-                            `Subred: ${weight}<br>Origen: ${sourceNode.data('router')} (${sourceNode.data('label')}, ${sourceIp}, Host: .${sourceHostNumber})<br>Destino: ${targetNode.data('router')} (${targetNode.data('label')}, ${targetIp}, Host: .${targetHostNumber})`;
-
-                        const tip = tippy(popperDiv, {
-                            content: tooltipContent,
-                            theme: 'light',
-                            placement: 'top',
-                            trigger: 'manual',
-                            maxWidth: 200
-                        });
-
-                        edge.on('mouseover', () => tip.show());
-                        edge.on('mouseout', () => tip.hide());
-                    });
-
-                    // Control de zoom
-                    const zoomSlider = document.getElementById('zoom-slider');
-                    zoomSlider.addEventListener('input', function() {
-                        cy.zoom(parseFloat(this.value));
-                        cy.center();
-                    });
-
-                    // Botones para guardar y resetear
-                    document.getElementById('save-btn').addEventListener('click', saveData);
-                    document.getElementById('reset-positions-btn').addEventListener('click', resetPositions);
-                    document.getElementById('reset-colors-btn').addEventListener('click', resetColors);
-                } catch (error) {
-                    console.error('Error al inicializar el grafo:', error);
-                    alert(`Error al inicializar el mapa BGP: ${error.message}`);
-                    document.getElementById('loading').textContent = 'Error al cargar el mapa. Verifica bgp_graph.json.';
+        const loadData = (nodes) => {
+            const savedData = JSON.parse(localStorage.getItem("bgpNodeData") || "{}");
+            return nodes.map(node => {
+                const nodeId = node.data.id;
+                if (savedData.positions?.[nodeId]?.x && savedData.positions?.[nodeId]?.y) {
+                    node.position = { x: savedData.positions[nodeId].x, y: savedData.positions[nodeId].y };
+                } else {
+                    node.position = getRandomPosition();
                 }
-            })
-            .catch(error => {
-                console.error('Error al cargar datos:', error);
-                document.getElementById('loading').textContent = `Error al cargar bgp_graph.json: ${error.message}`;
-            })
-            .finally(() => {
-                setTimeout(() => document.getElementById('loading').style.display = 'none', 3000);
+                node.data.color = savedData.colors?.nodes?.[nodeId] || node.data.color || (node.data.type === "interface" ? "#FFA500" : node.data.parent ? "#00FF00" : "#ddd");
+                return node;
+            });
+        };
+
+        // Visualización
+        const initializeGraph = async () => {
+            const loadingElement = document.getElementById("loading");
+            loadingElement.style.display = "block";
+            try {
+                const response = await fetch("bgp_graph.json");
+                if (!response.ok) throw new Error(`Error al cargar bgp_graph.json: ${response.status}`);
+                const data = await response.json();
+
+                validateGraphData(data);
+                const interfaceNodes = generateInterfaceNodes(data.nodes);
+                const allNodes = loadData(data.nodes.concat(interfaceNodes));
+                const transformedEdges = transformEdges(data.edges, interfaceNodes);
+                const allEdges = addHierarchicalEdges(allNodes, transformedEdges);
+
+                cy = cytoscape({
+                    container: document.getElementById("cy"),
+                    elements: { nodes: allNodes, edges: allEdges },
+                    style: [
+                        {
+                            selector: "node[!parent]",
+                            style: {
+                                "background-color": ele => ele.data("color") || "#ddd",
+                                shape: "rectangle",
+                                label: "data(label)",
+                                "text-valign": "top",
+                                "text-halign": "center",
+                                "font-size": 16,
+                                padding: 20,
+                                "border-width": 2,
+                                "border-style": "dashed",
+                            },
+                        },
+                        {
+                            selector: "node[parent][!type]",
+                            style: {
+                                "background-color": ele => ele.data("color") || "#00FF00",
+                                shape: "ellipse",
+                                label: "data(label)",
+                                width: 60,
+                                height: 60,
+                                "text-valign": "center",
+                                "text-halign": "center",
+                                "font-size": 14,
+                                "border-width": 2,
+                                "border-color": "#000",
+                            },
+                        },
+                        {
+                            selector: "node[type='interface']",
+                            style: {
+                                "background-color": ele => ele.data("color") || "#FFA500",
+                                shape: "ellipse",
+                                label: "data(label)",
+                                width: 40,
+                                height: 40,
+                                "text-valign": "center",
+                                "text-halign": "center",
+                                "font-size": 12,
+                                "border-width": 1,
+                                "border-color": "#000",
+                            },
+                        },
+                        {
+                            selector: "edge[type='hierarchical']",
+                            style: { "line-color": "#000", opacity: 0 },
+                        },
+                        {
+                            selector: "edge[type='router-interface']",
+                            style: { 
+                                "line-color": "#000", 
+                                width: 1, 
+                                opacity: 0.2, 
+                                "curve-style": "bezier",
+                                label: "", 
+                                "source-label": "", 
+                                "target-label": "" 
+                            },
+                        },
+                        {
+                            selector: "edge[!invisible][type!='hierarchical'][type!='router-interface']",
+                            style: {
+                                "line-color": ele => ele.data("color") || "#000",
+                                width: 3,
+                                label: "data(weight)",
+                                "font-size": 14,
+                                "text-background-color": "#FFFFFF",
+                                "text-background-opacity": 0.9,
+                                "text-background-padding": 3,
+                                "source-label": "",
+                                "target-label": "",
+                                "source-text-offset": 30,
+                                "target-text-offset": 30,
+                                "source-text-margin-y": -10,
+                                "target-text-margin-y": -10,
+                                "text-rotation": "autorotate",
+                                "curve-style": "bezier",
+                            },
+                        },
+                    ],
+                    layout: {
+                        name: "preset",
+                        positions: allNodes.reduce((acc, node) => {
+                            acc[node.data.id] = node.position;
+                            return acc;
+                        }, {}),
+                        fit: true,
+                        padding: 30,
+                    },
+                });
+
+                updateEdgeLabels(cy);
+                setupInteractivity(cy);
+                return cy;
+            } catch (error) {
+                console.error("Error al inicializar el grafo:", error);
+                loadingElement.textContent = `Error: ${error.message}. Intenta recargar.`;
+                throw error;
+            } finally {
+                setTimeout(() => (loadingElement.style.display = "none"), 3000);
+            }
+        };
+
+        // Actualizar etiquetas solo para enlaces entre interfaces
+        const updateEdgeLabels = (cy) => {
+            cy.edges("[!invisible][type!='hierarchical'][type!='router-interface']").forEach(edge => {
+                const sourceIp = cy.getElementById(edge.data("source")).data("ip") || "N/A";
+                const targetIp = cy.getElementById(edge.data("target")).data("ip") || "N/A";
+                edge.style({
+                    "source-label": `.${getHostNumber(sourceIp)}`,
+                    "target-label": `.${getHostNumber(targetIp)}`,
+                    "font-size": 12,
+                    "color": "#00008B",
+                    "text-background-color": "#FFFFFF",
+                    "text-background-opacity": 0.9,
+                    "text-background-padding": 3,
+                });
+            });
+        };
+
+        // Interactividad
+        const setupInteractivity = (cy) => {
+            const edgeLabelStates = new Map();
+            const toggleEdgeLabel = (edge) => {
+                const edgeId = edge.id();
+                const state = edgeLabelStates.get(edgeId) === "full" ? "host" : "full";
+                edgeLabelStates.set(edgeId, state);
+                const sourceIp = cy.getElementById(edge.data("source")).data("ip") || "N/A";
+                const targetIp = cy.getElementById(edge.data("target")).data("ip") || "N/A";
+                edge.style({
+                    "source-label": state === "host" ? `.${getHostNumber(sourceIp)}` : sourceIp,
+                    "target-label": state === "host" ? `.${getHostNumber(targetIp)}` : targetIp,
+                });
+            };
+
+            cy.edges("[!invisible][type!='hierarchical'][type!='router-interface']").on("click", evt => toggleEdgeLabel(evt.target));
+
+            const modal = document.getElementById("color-modal");
+            const applyColorBtn = document.getElementById("apply-color-btn");
+            const cancelColorBtn = document.getElementById("cancel-color-btn");
+            let selectedElementId = null;
+
+            cy.on("dblclick", "node, edge[!invisible][type!='hierarchical']", evt => {
+                const element = evt.target;
+                const pos = element.isNode() ? element.renderedPosition() : element.renderedMidpoint();
+                const modalWidth = 250, modalHeight = 180;
+                const left = Math.max(0, Math.min(pos.x, cy.width() - modalWidth));
+                const top = Math.max(0, Math.min(pos.y, cy.height() - modalHeight));
+
+                modal.style.left = `${left}px`;
+                modal.style.top = `${top}px`;
+                modal.style.display = "block";
+                modal.classList.add("show");
+
+                selectedElementId = element.id();
+                const currentColor = element.isNode() ? element.style("background-color") : element.style("line-color");
+                document.getElementById("color-input").value = rgbToHex(currentColor);
             });
 
-        function applyColor() {
-            if (selectedElement) {
-                const newColor = document.getElementById('color-input').value;
-                const element = cy.getElementById(selectedElement);
-                console.log(`Aplicando color ${newColor} al ${element.isNode() ? 'nodo' : 'enlace'} ${selectedElement}, elemento actual:`, {
-                    data: element.data(),
-                    style: element.style(),
-                    renderedPosition: element.isNode() ? element.renderedPosition() : element.renderedMidpoint()
-                });
-                if (element.isNode()) {
-                    element.style('background-color', newColor);
-                    element.data('color', newColor); // Guardar color en data para persistencia
-                } else if (element.isEdge()) {
-                    element.style('line-color', newColor);
-                    element.data('color', newColor); // Guardar color en data para persistencia
+            applyColorBtn.addEventListener("click", () => {
+                if (selectedElementId) {
+                    const element = cy.getElementById(selectedElementId);
+                    const newColor = document.getElementById("color-input").value;
+                    if (element.isNode()) element.style("background-color", newColor);
+                    else element.style("line-color", newColor);
+                    element.data("color", newColor);
+                    modal.classList.remove("show");
+                    setTimeout(() => (modal.style.display = "none"), 300);
+                    selectedElementId = null;
                 }
-                element.animate({
-                    style: { 'border-width': 4, 'border-color': '#FF0000' }
-                }, { duration: 500 }).animate({
-                    style: { 'border-width': 2, 'border-color': '#000' }
-                }, { duration: 500 });
-                hideColorModal();
-            } else {
-                console.warn('No hay elemento seleccionado para aplicar color.');
-            }
-        }
-
-        function hideColorModal() {
-            const modal = document.getElementById('color-modal');
-            console.log('Iniciando cierre del modal, estado actual:', {
-                isModalClosing,
-                selectedElement,
-                display: window.getComputedStyle(modal).display,
-                opacity: window.getComputedStyle(modal).opacity,
-                className: modal.className,
-                offsetWidth: modal.offsetWidth,
-                offsetHeight: modal.offsetHeight,
-                zIndex: window.getComputedStyle(modal).zIndex,
-                position: window.getComputedStyle(modal).position
             });
-            isModalClosing = true; // Indicar que el modal está cerrándose
-            modal.classList.remove('show');
-            setTimeout(() => {
-                modal.style.display = 'none';
-                modal.style.opacity = '0'; // Asegurar que la opacidad se restablezca
-                isModalClosing = false; // Restablecer el flag después de cerrar
-                selectedElement = null; // Restablecer selectedElement al cerrar la ventana
-                console.log('Modal cerrado, estado final:', {
-                    isModalClosing,
-                    selectedElement,
-                    display: window.getComputedStyle(modal).display,
-                    opacity: window.getComputedStyle(modal).opacity,
-                    className: modal.className,
-                    offsetWidth: modal.offsetWidth,
-                    offsetHeight: modal.offsetHeight,
-                    zIndex: window.getComputedStyle(modal).zIndex,
-                    position: window.getComputedStyle(modal).position
+
+            cancelColorBtn.addEventListener("click", () => {
+                modal.classList.remove("show");
+                setTimeout(() => (modal.style.display = "none"), 300);
+                selectedElementId = null;
+            });
+
+            const popperContainer = document.getElementById("popper-container");
+            const setupTooltips = () => {
+                popperContainer.innerHTML = "";
+                cy.nodes().forEach(node => {
+                    const div = document.createElement("div");
+                    div.style.position = "absolute";
+                    popperContainer.appendChild(div);
+                    const tip = tippy(div, {
+                        content: node.data("type") === "interface"
+                            ? `Interfaz: ${node.data("label")}<br>Router: ${node.data("router")}<br>IP: ${node.data("ip")}`
+                            : `ID: ${node.id()}<br>AS: ${node.data("parent") || "N/A"}`,
+                        theme: "light",
+                        placement: "top",
+                        trigger: "manual",
+                    });
+                    node.on("mouseover", () => tip.show()).on("mouseout", () => tip.hide());
                 });
-            }, 300); // Animación de salida
-        }
+            };
+            setupTooltips();
+
+            const saveData = () => {
+                const positions = {};
+                const colors = { nodes: {}, edges: {} };
+                cy.nodes().forEach(node => {
+                    positions[node.id()] = node.position();
+                    colors.nodes[node.id()] = rgbToHex(node.style("background-color"));
+                });
+                cy.edges("[!invisible][type!='hierarchical']").forEach(edge => {
+                    colors.edges[edge.id()] = rgbToHex(edge.style("line-color"));
+                });
+                localStorage.setItem("bgpNodeData", JSON.stringify({ positions, colors }));
+                alert("Datos guardados correctamente.");
+            };
+
+            const resetPositions = () => {
+                cy.layout({
+                    name: "cose",
+                    fit: true,
+                    padding: 30,
+                    animate: true,
+                    idealEdgeLength: edge => {
+                        if (edge.data("type") === "router-interface") return 20; // Corta para router-interfaz
+                        if (edge.data("weight")) return 200; // Larga para enlaces entre interfaces
+                        return 100; // Default para otros (e.g., AS a router)
+                    },
+                    nodeRepulsion: 200000,
+                    edgeElasticity: 50,
+                }).run();
+            };
+
+            const resetColors = () => {
+                cy.batch(() => {
+                    cy.nodes("[!parent]").style("background-color", "#ddd");
+                    cy.nodes("[parent][!type]").style("background-color", "#00FF00");
+                    cy.nodes("[type='interface']").style("background-color", "#FFA500");
+                    cy.edges("[!invisible][type!='hierarchical']").style("line-color", "#000");
+                });
+                updateEdgeLabels(cy);
+            };
+
+            document.getElementById("save-btn").addEventListener("click", saveData);
+            document.getElementById("reset-positions-btn").addEventListener("click", resetPositions);
+            document.getElementById("reset-colors-btn").addEventListener("click", resetColors);
+            document.getElementById("zoom-slider").addEventListener("input", () => cy.zoom(parseFloat(event.target.value)));
+        };
+
+        // Iniciar aplicación
+        initializeGraph().then(() => log("Grafo listo")).catch(() => log("Inicialización fallida"));
     </script>
 </body>
 </html>
