@@ -1,0 +1,125 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+
+#cy {
+    width: 100%;
+    height: 80vh;
+    border: 1px solid #ccc;
+    background-color: #fff;
+}
+
+#controls {
+    margin-top: 10px;
+}
+
+#save-btn, #reset-positions-btn, #reset-colors-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+#save-btn {
+    background-color: #28a745;
+    color: white;
+}
+
+#save-btn:hover {
+    background-color: #218838;
+}
+
+#reset-positions-btn {
+    background-color: #dc3545;
+    color: white;
+}
+
+#reset-positions-btn:hover {
+    background-color: #c82333;
+}
+
+#reset-colors-btn {
+    background-color: #ffc107;
+    color: black;
+}
+
+#reset-colors-btn:hover {
+    background-color: #e0a800;
+}
+
+#color-modal {
+    width: 250px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    padding: 15px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    z-index: 2000;
+    position: absolute;
+    background: white;
+    display: none;
+    transition: opacity 0.3s ease;
+}
+
+#color-modal.show {
+    display: block;
+    opacity: 1;
+}
+
+#color-modal input[type="color"] {
+    vertical-align: middle;
+    margin-right: 10px;
+}
+
+#color-modal button {
+    margin-top: 10px;
+    margin-right: 5px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+}
+
+#color-modal button:hover {
+    background-color: #0056b3;
+}
+
+#popper-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 1500;
+}
+
+.loading {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    color: #333;
+    z-index: 1000;
+}
+
+#legend {
+    margin-top: 20px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.legend-color {
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    border: 1px solid #ccc;
+}
