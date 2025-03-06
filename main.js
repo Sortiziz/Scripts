@@ -107,16 +107,16 @@ const loadData = (nodes) => {
         if (savedData.positions?.[nodeId]?.x && savedData.positions?.[nodeId]?.y) {
             node.position = { x: savedData.positions[nodeId].x, y: savedData.positions[nodeId].y };
         } else if (!node.data.parent) {
-            // Posicionar ASes en coordenadas base
+            // Posicionar ASes en una cuadrícula
             const asIndex = nonInterfaceNodes.filter(n => !n.data.parent).findIndex(n => n.data.id === nodeId);
-            node.position = { x: 200 + (asIndex * 300), y: 300 };
+            node.position = { x: 150 + (asIndex * 350), y: 300 }; // Ajuste de cuadrícula
         } else {
             // Posicionar routers en el centro de sus ASes
             const parentNode = nonInterfaceNodes.find(n => !n.data.parent && n.data.id === node.data.parent);
             if (parentNode && parentNode.position) {
                 node.position = { 
-                    x: parentNode.position.x,
-                    y: parentNode.position.y
+                    x: parentNode.position.x + 125, // Centro del rectángulo AS (250/2)
+                    y: parentNode.position.y + 125
                 };
             } else {
                 node.position = getRandomPosition();
@@ -138,7 +138,7 @@ const loadData = (nodes) => {
         const routerPos = router.position;
         const numInterfaces = interfaces.length;
 
-        const radius = 10; // Radio fijo reducido a 10 píxeles
+        const radius = 10; // Radio fijo de 10 píxeles
         interfaces.forEach((intfNode, index) => {
             const intfId = intfNode.data.id;
             if (savedData.positions?.[intfId]?.x && savedData.positions?.[intfId]?.y) {
@@ -185,11 +185,11 @@ const initializeGraph = async () => {
                         "text-valign": "top",
                         "text-halign": "center",
                         "font-size": 16,
-                        padding: 50,
+                        padding: 75, // Aumentado para contener routers e interfaces
                         "border-width": 2,
                         "border-style": "dashed",
-                        width: 200,
-                        height: 200,
+                        width: 250, // Aumentado tamaño del rectángulo AS
+                        height: 250,
                     },
                 },
                 {
@@ -213,11 +213,11 @@ const initializeGraph = async () => {
                         "background-color": ele => ele.data("color") || "#FFA500",
                         shape: "ellipse",
                         label: "data(label)",
-                        width: 30,
-                        height: 30,
+                        width: 20, // Reducido tamaño de interfaces
+                        height: 20,
                         "text-valign": "center",
                         "text-halign": "center",
-                        "font-size": 10,
+                        "font-size": 8,
                         "border-width": 1,
                         "border-color": "#000",
                     },
@@ -403,7 +403,6 @@ const setupInteractivity = (cy) => {
                 placement: "top",
                 trigger: "manual",
             });
-            // Usar eventos nativos de Cytoscape en lugar de asumir jQuery
             node.on("mouseover", () => tip.show());
             node.on("mouseout", () => tip.hide());
         });
