@@ -14,14 +14,21 @@ body {
 
 #controls {
     margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
-#save-btn, #reset-positions-btn, #reset-colors-btn {
-    padding: 8px 16px;
-    border: none;
+#controls input, #controls select, #controls button {
+    padding: 8px;
+    border: 1px solid #ccc;
     border-radius: 4px;
+    font-size: 14px;
+}
+
+#controls button {
     cursor: pointer;
-    margin-right: 10px;
+    margin-right: 0; /* Eliminar margen para usar gap */
 }
 
 #save-btn {
@@ -51,6 +58,15 @@ body {
     background-color: #e0a800;
 }
 
+#export-btn, #import-btn {
+    background-color: #007bff;
+    color: white;
+}
+
+#export-btn:hover, #import-btn:hover {
+    background-color: #0056b3;
+}
+
 #color-modal {
     width: 250px;
     border-radius: 8px;
@@ -58,10 +74,13 @@ body {
     padding: 15px;
     box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     z-index: 2000;
-    position: absolute;
+    position: fixed;
     background: white;
     display: none;
     transition: opacity 0.3s ease;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: auto;
 }
 
 #color-modal.show {
@@ -122,4 +141,36 @@ body {
     height: 20px;
     margin-right: 10px;
     border: 1px solid #ccc;
+}
+
+.notification {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    padding: 10px;
+    color: white;
+    z-index: 3000;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+/* Mejoras de responsividad */
+@media (max-width: 768px) {
+    #cy {
+        height: 60vh;
+    }
+    #controls input, #controls select, #controls button {
+        padding: 6px 12px;
+        font-size: 14px;
+    }
+    #controls {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
