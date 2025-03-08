@@ -39,11 +39,11 @@ export const validateGraphData = (data) => {
         }
         const sig = `${Math.min(source, target)}-${Math.max(source, target)}`;
         if (edgeSignatures.has(sig)) {
-            console.warn(`Advertencia: Enlace duplicado detectado entre ${source} y ${target}`);
+            console.warn(`Adv: Enlace duplicado entre ${source} y ${target}`);
         }
         edgeSignatures.add(sig);
     });
-    log("Datos validados:", { nodes: data.nodes.length, edges: data.edges.length });
+    log("Data validated:", { nodes: data.nodes.length, edges: data.edges.length });
     return true;
 };
 
@@ -59,7 +59,7 @@ export const generateInterfaceNodes = (nodes) => {
             const routerId = node.data.id;
             const parent = node.data.parent;
             Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
-                const intfId = `${routerId}_${intfName}`; // Identificador único
+                const intfId = `${routerId}_${intfName}`; // Unique identifier
                 interfaceNodes.push({
                     data: { id: intfId, label: intfName, type: "interface", router: routerId, ip, parent, color: "#FFA500" },
                     position: null,
@@ -82,7 +82,7 @@ export const transformEdges = (edges, interfaceNodes) => {
         const sourceIntfId = `${source}_${sourceInterface}`;
         const targetIntfId = `${target}_${targetInterface}`;
         if (!interfaceNodes.some(n => n.data.id === sourceIntfId) || !interfaceNodes.some(n => n.data.id === targetIntfId)) {
-            log(`Advertencia: Interfaces ${sourceIntfId} o ${targetIntfId} no generadas`);
+            log(`Adv: Interfaces ${sourceIntfId} or ${targetIntfId} not generated`);
             return null;
         }
         return { data: { source: sourceIntfId, target: targetIntfId, weight, color: "#000" } };
@@ -123,13 +123,13 @@ export const loadData = (nodes, edges = []) => {
     const nonInterfaceNodes = nodes.filter(node => node.data.type !== "interface");
     const interfaceNodes = nodes.filter(node => node.data.type === "interface");
 
-    // Índice de nodos para acceso rápido
+    // Index for quick access
     const nodeIndex = nodes.reduce((acc, node) => {
         acc[node.data.id] = node;
         return acc;
     }, {});
 
-    // Crear un mapeo de AS a sus routers
+    // Map AS to its routers
     const asToRouters = {};
     nonInterfaceNodes.forEach(node => {
         if (node.data.parent) {
@@ -140,7 +140,7 @@ export const loadData = (nodes, edges = []) => {
         }
     });
 
-    // Posicionar nodos no interfaces (ASes y routers) con desplazamiento aleatorio
+    // Position non-interface nodes (ASes and routers) with random offsets
     nonInterfaceNodes.forEach(node => {
         const nodeId = node.data.id;
         if (savedData.positions?.[nodeId]?.x && savedData.positions?.[nodeId]?.y) {
@@ -151,7 +151,7 @@ export const loadData = (nodes, edges = []) => {
             const asGrid = Math.ceil(Math.sqrt(nonInterfaceNodes.length));
             const asRow = Math.floor(asIndex / asGrid);
             const asCol = asIndex % asGrid;
-            const gridSize = 800; // Aumentado de 700 a 800
+            const gridSize = 900; // Aumentado de 800 a 900
             const randomOffsetX = (Math.random() - 0.5) * 100; // Mantenido en ±50
             const randomOffsetY = (Math.random() - 0.5) * 100;
             node.position = {
@@ -168,15 +168,18 @@ export const loadData = (nodes, edges = []) => {
             const index = routersInAs.indexOf(node);
             const angle = (2 * Math.PI * index) / numRouters;
             const radius = 150; // Radio para posicionar routers alrededor del AS
+            const randomOffsetX = (Math.random() - 0.5) * 20;
+            const randomOffsetY = (Math.random() - 0.5) * 20;
             node.position = {
-                x: asPos.x + radius * Math.cos(angle),
-                y: asPos.y + radius * Math.sin(angle),
+                x: asPos.x + radius * Math.cos(angle) + randomOffsetX,
+                y: asPos.y + radius * Math.sin(angle) + randomOffsetY,
             };
         }
         node.data.color = savedData.colors?.nodes?.[nodeId] || node.data.color || (node.data.parent ? "#00FF00" : "#ddd");
+        node.locked = true; // Lock ASes and routers
     });
 
-    // Crear diccionario de conexiones de interfaces
+    // Create dictionary of interface connections
     const interfaceConnections = {};
     edges.forEach(edge => {
         const sourceIntfId = `${edge.data.source}_${edge.data.sourceInterface}`;
@@ -185,7 +188,7 @@ export const loadData = (nodes, edges = []) => {
         interfaceConnections[targetIntfId] = sourceIntfId;
     });
 
-    // Posicionar nodos de interfaz con ajuste dinámico y desplazamiento angular
+    // Position interface nodes with dynamic radius and angular offset
     const interfacesByRouter = {};
     interfaceNodes.forEach(node => {
         const routerId = node.data.router;
@@ -196,41 +199,32 @@ export const loadData = (nodes, edges = []) => {
     Object.entries(interfacesByRouter).forEach(([routerId, interfaces]) => {
         const router = nodeIndex[routerId];
         const routerPos = router.position;
+        const numInterfaces = interfaces.length;
+        const baseRadius = 40 + 10 * (numInterfaces - 1); // Dynamic radius based on number of interfaces
+
         interfaces.forEach((intfNode) => {
             const intfId = intfNode.data.id;
-            if (savedData.positions?.[intfId]?.x && savedData.positions?.[intfId]?.y) {
-                intfNode.position = { x: savedData.positions[intfId].x, y: savedData.positions[intfId].y };
+            const connectedIntfId = interfaceConnections[intfId];
+            let initialAngle;
+            if (connectedIntfId && nodeIndex[connectedIntfId]) {
+                const connectedIntf = nodeIndex[connectedIntfId];
+                const connectedRouter = nodeIndex[connectedIntf.data['router']];
+                const dx = connectedRouter.position.x - routerPos.x;
+                const dy = connectedRouter.position.y - routerPos.y;
+                initialAngle = Math.atan2(dy, dx);
             } else {
-                const connectedIntfId = interfaceConnections[intfId];
-                if (connectedIntfId && nodeIndex[connectedIntfId]) {
-                    const connectedIntf = nodeIndex[connectedIntfId];
-                    const connectedRouter = nodeIndex[connectedIntf.data.router];
-                    const dx = connectedRouter.position.x - routerPos.x;
-                    const dy = connectedRouter.position.y - routerPos.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    const baseRadius = 100; // Aumentado de 80 a 100
-                    const radius = Math.max(baseRadius, distance / 1.2); // Ajustado de /1.5 a /1.2
-                    let angle = Math.atan2(dy, dx);
-                    // Introducir desplazamiento angular para evitar superposición
-                    const offsetAngle = (Math.PI / 12); // 15 grados
-                    const isSource = intfId === `${connectedIntf.data.router}_${connectedIntf.data.label}` ? 1 : -1;
-                    angle += isSource * offsetAngle;
-                    intfNode.position = {
-                        x: routerPos.x + radius * Math.cos(angle),
-                        y: routerPos.y + radius * Math.sin(angle),
-                    };
-                } else {
-                    const numInterfaces = interfaces.length;
-                    const index = interfaces.indexOf(intfNode);
-                    const angle = (2 * Math.PI * index) / numInterfaces;
-                    const radius = 40;
-                    intfNode.position = {
-                        x: routerPos.x + radius * Math.cos(angle),
-                        y: routerPos.y + radius * Math.sin(angle),
-                    };
-                }
+                const index = interfaces.indexOf(intfNode);
+                initialAngle = (2 * Math.PI * index) / numInterfaces;
             }
-            intfNode.data.color = savedData.colors?.nodes?.[intfId] || intfNode.data.color || "#FFA500";
+            // Add random angular offset
+            const randomAngleOffset = (Math.random() - 0.5) * Math.PI / 9; // ±20 degrees
+            const angle = initialAngle + randomAngleOffset;
+            const radius = baseRadius; // Use dynamic radius
+            intfNode.position = {
+                x: routerPos.x + radius * Math.cos(angle),
+                y: routerPos.y + radius * Math.sin(angle),
+            };
+            intfNode.locked = false; // Unlock interfaces for layout
         });
     });
 
