@@ -1,4 +1,3 @@
-// src/visualization.js
 import { log, CONFIG, rgbToHex } from './utils.js';
 import { validateGraphData, loadData, generateInterfaceNodes, transformEdges, addHierarchicalEdges } from './data.js';
 

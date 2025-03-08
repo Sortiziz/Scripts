@@ -1,4 +1,3 @@
-// src/main.js
 import { validateGraphData, loadData, generateInterfaceNodes, transformEdges, addHierarchicalEdges } from './data.js';
 import { initializeGraph, updateEdgeLabels, updateLegend } from './visualization.js';
 import { setupInteractivity, setupSearchAndFilter } from './interactivity.js';

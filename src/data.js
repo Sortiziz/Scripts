@@ -1,5 +1,4 @@
-// src/data.js
-import { log, getRandomPosition, isLocalStorageAvailable } from './utils.js';
+import { log, getRandomPosition, isLocalStorageAvailable, is_valid_ip, is_valid_subnet } from './utils.js';
 
 /**
  * Valida la estructura de datos de bgp_graph.json.
@@ -16,9 +15,16 @@ export const validateGraphData = (data) => {
         if (nodeIds.has(node.data.id)) throw new Error(`ID duplicado: ${node.data.id}`);
         nodeIds.add(node.data.id);
         if (node.data.interfaces) {
-            Object.values(node.data.interfaces).forEach(ip => {
-                if (!/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(ip)) {
-                    throw new Error(`IP inválida en nodo ${node.data.id}: ${ip}`);
+            Object.values(node.data.interfaces).forEach(ip_str => {
+                if (ip_str.split('/').length !== 2) {
+                    throw new Error(`IP/Máscara mal formada: ${ip_str}`);
+                }
+                const [ip, subnet] = ip_str.split('/');
+                if (!is_valid_ip(ip)) {
+                    throw new Error(`Dirección IP inválida en nodo ${node.data.id}: ${ip}`);
+                }
+                if (!is_valid_subnet(subnet)) {
+                    throw new Error(`Máscara de subred inválida en nodo ${node.data.id}: ${subnet}`);
                 }
             });
         }
@@ -54,12 +60,17 @@ export const validateGraphData = (data) => {
  */
 export const generateInterfaceNodes = (nodes) => {
     const interfaceNodes = [];
+    const interfaceNodeIds = new Set();
     nodes.forEach(node => {
         if (node.data.interfaces) {
             const routerId = node.data.id;
             const parent = node.data.parent;
             Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
                 const intfId = `${routerId}_${intfName}`; // Unique identifier
+                if (interfaceNodeIds.has(intfId)) {
+                    throw new Error(`ID duplicado para nodo de interfaz: ${intfId}`);
+                }
+                interfaceNodeIds.add(intfId);
                 interfaceNodes.push({
                     data: { id: intfId, label: intfName, type: "interface", router: routerId, ip, parent, color: "#FFA500" },
                     position: null,
@@ -77,12 +88,17 @@ export const generateInterfaceNodes = (nodes) => {
  * @returns {Array} Lista de enlaces transformados.
  */
 export const transformEdges = (edges, interfaceNodes) => {
+    const interfaceNodeIds = new Set(interfaceNodes.map(n => n.data.id)); // Optimización para búsquedas rápidas
     return edges.map(edge => {
         const { source, target, sourceInterface, targetInterface, weight } = edge.data;
+        if (!source || !target || !sourceInterface || !targetInterface || !weight) {
+            log(`Adv: Datos de enlace incompletos: ${JSON.stringify(edge.data)}`);
+            return null;
+        }
         const sourceIntfId = `${source}_${sourceInterface}`;
         const targetIntfId = `${target}_${targetInterface}`;
-        if (!interfaceNodes.some(n => n.data.id === sourceIntfId) || !interfaceNodes.some(n => n.data.id === targetIntfId)) {
-            log(`Adv: Interfaces ${sourceIntfId} or ${targetIntfId} not generated`);
+        if (!interfaceNodeIds.has(sourceIntfId) || !interfaceNodeIds.has(targetIntfId)) {
+            log(`Adv: Interfaces ${sourceIntfId} o ${targetIntfId} no generadas`);
             return null;
         }
         return { data: { source: sourceIntfId, target: targetIntfId, weight, color: "#000" } };

@@ -1,5 +1,4 @@
-// src/interactivity.js
-import { log, rgbToHex, showNotification, isLocalStorageAvailable, CONFIG } from './utils.js';
+import { log, rgbToHex, showNotification, isLocalStorageAvailable, CONFIG, debounce } from './utils.js';
 
 /**
  * Configura la interactividad del grafo, incluyendo tooltips, cambio de colores, alternar etiquetas de enlaces, y navegación por teclado.
@@ -240,13 +239,14 @@ export const setupSearchAndFilter = (cy) => {
     const searchInput = document.getElementById("search-input");
     const filterType = document.getElementById("filter-type");
 
-    searchInput.addEventListener("input", () => {
+    // Búsqueda con retraso para mejorar el rendimiento
+    searchInput.addEventListener("input", debounce(() => {
         const query = searchInput.value.toLowerCase();
         cy.nodes().forEach(node => {
             const label = node.data("label").toLowerCase();
             node.style("opacity", label.includes(query) ? 1 : 0.2);
         });
-    });
+    }, 300));
 
     filterType.addEventListener("change", () => {
         const type = filterType.value;
