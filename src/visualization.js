@@ -95,7 +95,7 @@ export const initializeGraph = async () => {
                     selector: "edge[type='router-connection']",
                     style: { 
                         "line-color": "transparent", 
-                        opacity: 0, // Invisible pero afecta al layout
+                        opacity: 0,
                         "curve-style": "straight",
                     },
                 },
@@ -131,7 +131,6 @@ export const initializeGraph = async () => {
             },
         });
 
-        // Ajustar posiciones con "cose" si no hay posiciones guardadas completas
         const allNodesHaveSavedPositions = allNodes.every(node => {
             const savedData = JSON.parse(localStorage.getItem("bgpNodeData") || "{}");
             return savedData.positions?.[node.data.id]?.x && savedData.positions?.[node.data.id]?.y;
@@ -143,13 +142,13 @@ export const initializeGraph = async () => {
                 padding: 30,
                 animate: true,
                 idealEdgeLength: edge => {
-                    if (edge.data("type") === "router-interface") return 10; // Interfaces cerca de routers
-                    if (edge.data("type") === "router-connection") return 350; // Routers conectados a distancia razonable
+                    if (edge.data("type") === "router-interface") return 10;
+                    if (edge.data("type") === "router-connection") return 350;
                     if (edge.data("weight")) return 200;
                     return 100;
                 },
                 nodeRepulsion: 100000,
-                edgeElasticity: edge => edge.data("type") === "router-interface" ? 1000 : 50, // Alta elasticidad para interfaces
+                edgeElasticity: edge => edge.data("type") === "router-interface" ? 1000 : 50,
             }).run();
         }
 

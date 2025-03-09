@@ -132,21 +132,15 @@ export const setupInteractivity = (cy) => {
     };
 
     const resetPositions = () => {
-        cy.layout({
-            name: "cose",
-            fit: true,
-            padding: 30,
-            animate: true,
-            idealEdgeLength: edge => {
-                if (edge.data("type") === "router-interface") return 10;
-                if (edge.data("type") === "router-connection") return 350;
-                if (edge.data("weight")) return 200;
-                return 100;
-            },
-            nodeRepulsion: 100000,
-            edgeElasticity: edge => edge.data("type") === "router-interface" ? 1000 : 50,
-        }).run();
-        showNotification("Posiciones reseteadas.");
+        // Restaurar posiciones predeterminadas guardadas en defaultPosition
+        cy.nodes().forEach(node => {
+            if (node.data("defaultPosition")) {
+                node.position(node.data("defaultPosition"));
+            }
+        });
+        cy.resize(); // Actualizar la visualización
+        cy.fit(); // Ajustar el zoom para que todo sea visible
+        showNotification("Posiciones reseteadas a estructura jerárquica.");
     };
 
     const resetColors = () => {
