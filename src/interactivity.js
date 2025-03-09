@@ -7,10 +7,9 @@ import { log, rgbToHex, showNotification, isLocalStorageAvailable, CONFIG, debou
 export const setupInteractivity = (cy) => {
     const edgeLabelStates = new Map();
 
-    // Función para alternar etiquetas de enlaces
     const toggleEdgeLabel = (edge) => {
         const edgeId = edge.id();
-        const currentState = edgeLabelStates.get(edgeId) || "host"; // Por defecto "host"
+        const currentState = edgeLabelStates.get(edgeId) || "host";
         const newState = currentState === "full" ? "host" : "full";
         edgeLabelStates.set(edgeId, newState);
         const sourceIp = cy.getElementById(edge.data("source")).data("ip") || "N/A";
@@ -26,12 +25,10 @@ export const setupInteractivity = (cy) => {
         });
     };
 
-    // Evento para alternar etiquetas al hacer clic en los enlaces
     cy.edges("[!invisible][type!='hierarchical'][type!='router-interface']").on("click", evt => {
         toggleEdgeLabel(evt.target);
     });
 
-    // Configuración del modal para cambio de color
     const modal = document.getElementById("color-modal");
     const applyColorBtn = document.getElementById("apply-color-btn");
     const cancelColorBtn = document.getElementById("cancel-color-btn");
@@ -71,7 +68,7 @@ export const setupInteractivity = (cy) => {
             } else {
                 element.style("line-color", newColor);
             }
-            element.data("color", newColor); // Guardar el color en los datos del elemento
+            element.data("color", newColor);
             modal.classList.remove("show");
             setTimeout(() => {
                 modal.style.display = "none";
@@ -91,7 +88,6 @@ export const setupInteractivity = (cy) => {
         selectedElementId = null;
     });
 
-    // Configuración de tooltips
     const popperContainer = document.getElementById("popper-container");
     const setupTooltips = () => {
         cy.nodes().forEach(node => {
@@ -117,7 +113,6 @@ export const setupInteractivity = (cy) => {
     };
     setupTooltips();
 
-    // Funciones para guardar, resetear posiciones y colores
     const saveData = () => {
         if (!isLocalStorageAvailable()) {
             showNotification("No se puede guardar: localStorage no disponible", "error");
@@ -144,11 +139,12 @@ export const setupInteractivity = (cy) => {
             animate: true,
             idealEdgeLength: edge => {
                 if (edge.data("type") === "router-interface") return 10;
+                if (edge.data("type") === "router-connection") return 350;
                 if (edge.data("weight")) return 200;
                 return 100;
             },
             nodeRepulsion: 100000,
-            edgeElasticity: edge => edge.data("type") === "router-interface" ? 200 : 50,
+            edgeElasticity: edge => edge.data("type") === "router-interface" ? 1000 : 50,
         }).run();
         showNotification("Posiciones reseteadas.");
     };
@@ -163,7 +159,6 @@ export const setupInteractivity = (cy) => {
         showNotification("Colores reseteados.");
     };
 
-    // Configuración de eventos de botones
     document.getElementById("save-btn").addEventListener("click", saveData);
     document.getElementById("reset-positions-btn").addEventListener("click", resetPositions);
     document.getElementById("reset-colors-btn").addEventListener("click", resetColors);
@@ -174,7 +169,6 @@ export const setupInteractivity = (cy) => {
         });
     });
 
-    // Exportar configuración
     document.getElementById("export-btn").addEventListener("click", () => {
         if (!isLocalStorageAvailable()) {
             showNotification("No se puede exportar: localStorage no disponible", "error");
@@ -191,7 +185,6 @@ export const setupInteractivity = (cy) => {
         showNotification("Configuración exportada.");
     });
 
-    // Importar configuración
     document.getElementById("import-btn").addEventListener("click", () => {
         document.getElementById("import-input").click();
     });
@@ -217,7 +210,6 @@ export const setupInteractivity = (cy) => {
         }
     });
 
-    // Navegación por teclado
     document.getElementById("cy").addEventListener("keydown", (event) => {
         if (event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === "ArrowUp" || event.key === "ArrowDown") {
             event.preventDefault();
@@ -239,7 +231,6 @@ export const setupSearchAndFilter = (cy) => {
     const searchInput = document.getElementById("search-input");
     const filterType = document.getElementById("filter-type");
 
-    // Búsqueda con retraso para mejorar el rendimiento
     searchInput.addEventListener("input", debounce(() => {
         const query = searchInput.value.toLowerCase();
         cy.nodes().forEach(node => {
@@ -266,7 +257,6 @@ export const setupSearchAndFilter = (cy) => {
     });
 };
 
-// Función auxiliar para obtener la parte del host de una IP
 const getHostNumber = (ip) => {
     if (!ip || typeof ip !== "string") return "N/A";
     const parts = ip.split(".");

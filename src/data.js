@@ -1,5 +1,8 @@
 import { log, getRandomPosition, isLocalStorageAvailable, is_valid_ip, is_valid_subnet } from './utils.js';
 
+// Mapeo global para rastrear la relación entre nodos de interfaz y sus routers
+let interfaceNodeToRouter = {};
+
 /**
  * Valida la estructura de datos de bgp_graph.json.
  * @param {Object} data - Datos del grafo.
@@ -54,13 +57,14 @@ export const validateGraphData = (data) => {
 };
 
 /**
- * Genera nodos de interfaz para cada router.
+ * Genera nodos de interfaz para cada router y crea un mapeo global.
  * @param {Array} nodes - Lista de nodos del grafo.
  * @returns {Array} Lista de nodos de interfaz generados.
  */
 export const generateInterfaceNodes = (nodes) => {
     const interfaceNodes = [];
     const interfaceNodeIds = new Set();
+    interfaceNodeToRouter = {}; // Reiniciar el mapeo global
     nodes.forEach(node => {
         if (node.data.interfaces) {
             const routerId = node.data.id;
@@ -75,6 +79,7 @@ export const generateInterfaceNodes = (nodes) => {
                     data: { id: intfId, label: intfName, type: "interface", router: routerId, ip, parent, color: "#FFA500" },
                     position: null,
                 });
+                interfaceNodeToRouter[intfId] = routerId; // Mapear interfaz a su router
             });
         }
     });
@@ -106,13 +111,14 @@ export const transformEdges = (edges, interfaceNodes) => {
 };
 
 /**
- * Añade enlaces jerárquicos para relaciones AS-router e interfaz-router.
+ * Añade enlaces jerárquicos para relaciones AS-router, interfaz-router y conexiones entre routers.
  * @param {Array} nodes - Lista de nodos del grafo.
- * @param {Array} edges - Lista de enlaces del grafo.
- * @returns {Array} Lista de enlaces con jerarquías añadidas.
+ * @param {Array} edges - Lista de enlaces transformados del grafo.
+ * @returns {Array} Lista de enlaces con jerarquías y conexiones añadidas.
  */
 export const addHierarchicalEdges = (nodes, edges) => {
     const hierarchicalEdges = [];
+    // Añadir relaciones AS > router y router > interfaz
     nodes.forEach(node => {
         if (node.data.parent && !node.data.type) {
             hierarchicalEdges.push({
@@ -125,6 +131,23 @@ export const addHierarchicalEdges = (nodes, edges) => {
             });
         }
     });
+
+    // Añadir bordes invisibles entre routers conectados
+    const routerConnections = new Set();
+    edges.forEach(edge => {
+        const sourceRouter = interfaceNodeToRouter[edge.data.source];
+        const targetRouter = interfaceNodeToRouter[edge.data.target];
+        if (sourceRouter && targetRouter && sourceRouter !== targetRouter) {
+            const connectionSig = `${Math.min(sourceRouter, targetRouter)}-${Math.max(sourceRouter, targetRouter)}`;
+            if (!routerConnections.has(connectionSig)) {
+                routerConnections.add(connectionSig);
+                hierarchicalEdges.push({
+                    data: { source: sourceRouter, target: targetRouter, type: "router-connection", invisible: true },
+                });
+            }
+        }
+    });
+
     return edges.concat(hierarchicalEdges);
 };
 
@@ -156,26 +179,24 @@ export const loadData = (nodes, edges = []) => {
         }
     });
 
-    // Position non-interface nodes (ASes and routers) with random offsets
+    // Position non-interface nodes (ASes and routers) with random offsets initially
     nonInterfaceNodes.forEach(node => {
         const nodeId = node.data.id;
         if (savedData.positions?.[nodeId]?.x && savedData.positions?.[nodeId]?.y) {
             node.position = { x: savedData.positions[nodeId].x, y: savedData.positions[nodeId].y };
         } else if (!node.data.parent) {
-            // AS nodes
+            // AS nodes en cuadrícula fija
             const asIndex = nonInterfaceNodes.filter(n => !n.data.parent).findIndex(n => n.data.id === nodeId);
-            const asGrid = Math.ceil(Math.sqrt(nonInterfaceNodes.length));
+            const asGrid = Math.ceil(Math.sqrt(nonInterfaceNodes.filter(n => !n.data.parent).length));
             const asRow = Math.floor(asIndex / asGrid);
             const asCol = asIndex % asGrid;
-            const gridSize = 900; // Aumentado de 800 a 900
-            const randomOffsetX = (Math.random() - 0.5) * 100; // Mantenido en ±50
-            const randomOffsetY = (Math.random() - 0.5) * 100;
+            const gridSize = 900;
             node.position = {
-                x: 200 + (asCol * gridSize) + randomOffsetX,
-                y: 350 + (asRow * gridSize) + randomOffsetY,
+                x: 200 + (asCol * gridSize),
+                y: 350 + (asRow * gridSize),
             };
         } else {
-            // Router nodes
+            // Routers inicialmente en círculo alrededor de su AS (serán ajustados por layout)
             const parentId = node.data.parent;
             const asNode = nodeIndex[parentId];
             const asPos = asNode.position;
@@ -183,16 +204,14 @@ export const loadData = (nodes, edges = []) => {
             const numRouters = routersInAs.length;
             const index = routersInAs.indexOf(node);
             const angle = (2 * Math.PI * index) / numRouters;
-            const radius = 150; // Radio para posicionar routers alrededor del AS
-            const randomOffsetX = (Math.random() - 0.5) * 20;
-            const randomOffsetY = (Math.random() - 0.5) * 20;
+            const radius = 150;
             node.position = {
-                x: asPos.x + radius * Math.cos(angle) + randomOffsetX,
-                y: asPos.y + radius * Math.sin(angle) + randomOffsetY,
+                x: asPos.x + radius * Math.cos(angle),
+                y: asPos.y + radius * Math.sin(angle),
             };
         }
         node.data.color = savedData.colors?.nodes?.[nodeId] || node.data.color || (node.data.parent ? "#00FF00" : "#ddd");
-        node.locked = true; // Lock ASes and routers
+        node.locked = !node.data.parent; // Fijar ASes, desbloquear routers para ajuste de layout
     });
 
     // Create dictionary of interface connections
@@ -232,15 +251,14 @@ export const loadData = (nodes, edges = []) => {
                 const index = interfaces.indexOf(intfNode);
                 initialAngle = (2 * Math.PI * index) / numInterfaces;
             }
-            // Add random angular offset
             const randomAngleOffset = (Math.random() - 0.5) * Math.PI / 9; // ±20 degrees
             const angle = initialAngle + randomAngleOffset;
-            const radius = baseRadius; // Use dynamic radius
+            const radius = baseRadius;
             intfNode.position = {
                 x: routerPos.x + radius * Math.cos(angle),
                 y: routerPos.y + radius * Math.sin(angle),
             };
-            intfNode.locked = false; // Unlock interfaces for layout
+            intfNode.locked = false; // Desbloquear interfaces para layout
         });
     });
 

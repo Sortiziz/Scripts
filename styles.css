@@ -28,7 +28,7 @@ body {
 
 #controls button {
     cursor: pointer;
-    margin-right: 0; /* Eliminar margen para usar gap */
+    margin-right: 0;
 }
 
 #save-btn {
@@ -160,7 +160,6 @@ body {
     to { transform: translateX(0); }
 }
 
-/* Mejoras de responsividad */
 @media (max-width: 768px) {
     #cy {
         height: 60vh;

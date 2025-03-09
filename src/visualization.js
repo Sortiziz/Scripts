@@ -92,6 +92,14 @@ export const initializeGraph = async () => {
                     },
                 },
                 {
+                    selector: "edge[type='router-connection']",
+                    style: { 
+                        "line-color": "transparent", 
+                        opacity: 0, // Invisible pero afecta al layout
+                        "curve-style": "straight",
+                    },
+                },
+                {
                     selector: "edge[!invisible][type!='hierarchical'][type!='router-interface']",
                     style: {
                         "line-color": ele => ele.data("color") || CONFIG.DEFAULT_COLORS.EDGE,
@@ -123,7 +131,7 @@ export const initializeGraph = async () => {
             },
         });
 
-        // Solo aplicar cose si no hay posiciones guardadas
+        // Ajustar posiciones con "cose" si no hay posiciones guardadas completas
         const allNodesHaveSavedPositions = allNodes.every(node => {
             const savedData = JSON.parse(localStorage.getItem("bgpNodeData") || "{}");
             return savedData.positions?.[node.data.id]?.x && savedData.positions?.[node.data.id]?.y;
@@ -135,12 +143,13 @@ export const initializeGraph = async () => {
                 padding: 30,
                 animate: true,
                 idealEdgeLength: edge => {
-                    if (edge.data("type") === "router-interface") return 10;
-                    if (edge.data("weight")) return 350; // Mantenido en 350
+                    if (edge.data("type") === "router-interface") return 10; // Interfaces cerca de routers
+                    if (edge.data("type") === "router-connection") return 350; // Routers conectados a distancia razonable
+                    if (edge.data("weight")) return 200;
                     return 100;
                 },
-                nodeRepulsion: 300000, // Mantenido en 300000
-                edgeElasticity: edge => edge.data("type") === "router-interface" ? 200 : 50,
+                nodeRepulsion: 100000,
+                edgeElasticity: edge => edge.data("type") === "router-interface" ? 1000 : 50, // Alta elasticidad para interfaces
             }).run();
         }
 
@@ -189,7 +198,6 @@ export const updateLegend = (cy) => {
     legendItems[3].querySelector(".legend-color").style.backgroundColor = cy.edges("[!invisible]").style("line-color") || CONFIG.DEFAULT_COLORS.EDGE;
 };
 
-// Función auxiliar para obtener la parte del host de una IP
 const getHostNumber = (ip) => {
     if (!ip || typeof ip !== "string") return "N/A";
     const parts = ip.split(".");
