@@ -5,8 +5,6 @@ let interfaceNodeToRouter = {};
 
 /**
  * Valida la estructura de datos de bgp_graph.json.
- * @param {Object} data - Datos del grafo.
- * @throws {Error} Si los datos son inválidos.
  */
 export const validateGraphData = (data) => {
     if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
@@ -46,9 +44,11 @@ export const validateGraphData = (data) => {
         if (targetNode.data.interfaces && !targetNode.data.interfaces[targetInterface]) {
             throw new Error(`Interfaz ${targetInterface} no encontrada en ${target}`);
         }
-        const sig = `${Math.min(source, target)}-${Math.max(source, target)}`;
+        const sortedNodes = [source, target].sort();
+        const sortedInterfaces = source === sortedNodes[0] ? [sourceInterface, targetInterface] : [targetInterface, sourceInterface];
+        const sig = `${sortedNodes[0]}-${sortedNodes[1]}-${sortedInterfaces[0]}-${sortedInterfaces[1]}`;
         if (edgeSignatures.has(sig)) {
-            console.warn(`Adv: Enlace duplicado entre ${source} y ${target}`);
+            console.warn(`Adv: Enlace duplicado entre ${source} y ${target} usando interfaces ${sourceInterface} y ${targetInterface}`);
         }
         edgeSignatures.add(sig);
     });
@@ -58,19 +58,17 @@ export const validateGraphData = (data) => {
 
 /**
  * Genera nodos de interfaz para cada router y crea un mapeo global.
- * @param {Array} nodes - Lista de nodos del grafo.
- * @returns {Array} Lista de nodos de interfaz generados.
  */
 export const generateInterfaceNodes = (nodes) => {
     const interfaceNodes = [];
     const interfaceNodeIds = new Set();
-    interfaceNodeToRouter = {}; // Reiniciar el mapeo global
+    interfaceNodeToRouter = {};
     nodes.forEach(node => {
         if (node.data.interfaces) {
             const routerId = node.data.id;
             const parent = node.data.parent;
             Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
-                const intfId = `${routerId}_${intfName}`; // Unique identifier
+                const intfId = `${routerId}_${intfName}`;
                 if (interfaceNodeIds.has(intfId)) {
                     throw new Error(`ID duplicado para nodo de interfaz: ${intfId}`);
                 }
@@ -79,7 +77,7 @@ export const generateInterfaceNodes = (nodes) => {
                     data: { id: intfId, label: intfName, type: "interface", router: routerId, ip, parent, color: "#FFA500" },
                     position: null,
                 });
-                interfaceNodeToRouter[intfId] = routerId; // Mapear interfaz a su router
+                interfaceNodeToRouter[intfId] = routerId;
             });
         }
     });
@@ -88,9 +86,6 @@ export const generateInterfaceNodes = (nodes) => {
 
 /**
  * Transforma los enlaces para usar nodos de interfaz.
- * @param {Array} edges - Lista de enlaces del grafo.
- * @param {Array} interfaceNodes - Lista de nodos de interfaz.
- * @returns {Array} Lista de enlaces transformados.
  */
 export const transformEdges = (edges, interfaceNodes) => {
     const interfaceNodeIds = new Set(interfaceNodes.map(n => n.data.id));
@@ -112,9 +107,6 @@ export const transformEdges = (edges, interfaceNodes) => {
 
 /**
  * Añade enlaces jerárquicos para relaciones AS-router, interfaz-router y conexiones entre routers.
- * @param {Array} nodes - Lista de nodos del grafo.
- * @param {Array} edges - Lista de enlaces transformados del grafo.
- * @returns {Array} Lista de enlaces con jerarquías y conexiones añadidas.
  */
 export const addHierarchicalEdges = (nodes, edges) => {
     const hierarchicalEdges = [];
@@ -150,34 +142,83 @@ export const addHierarchicalEdges = (nodes, edges) => {
 };
 
 /**
- * Carga y posiciona los nodos del grafo en una estructura jerárquica.
- * @param {Array} nodes - Lista de nodos del grafo.
- * @param {Array} edges - Lista de enlaces del grafo (opcional).
- * @returns {Array} Lista de nodos con posiciones asignadas.
+ * Detecta si dos nodos se superponen según sus posiciones y tamaños.
  */
-export const loadData = (nodes, edges = []) => {
+const detectOverlap = (node1, node2, buffer = 10) => {
+    const size1 = node1.data.type === "interface" ? 20 : node1.data.parent ? 60 : 250;
+    const size2 = node2.data.type === "interface" ? 20 : node2.data.parent ? 60 : 250;
+    const dx = node1.position.x - node2.position.x;
+    const dy = node1.position.y - node2.position.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    return distance < (size1 / 2 + size2 / 2 + buffer);
+};
+
+/**
+ * Ajusta las posiciones de los nodos para resolver superposiciones dentro del mismo nivel.
+ */
+const resolveOverlaps = (nodes, spacing, minSpacing) => {
+    let adjusted = false;
+    do {
+        adjusted = false;
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                if (detectOverlap(nodes[i], nodes[j])) {
+                    adjusted = true;
+                    const dx = nodes[j].position.x - nodes[i].position.x;
+                    const move = Math.max(spacing, minSpacing) / 2;
+                    nodes[i].position.x -= move;
+                    nodes[j].position.x += move;
+                }
+            }
+        }
+    } while (adjusted);
+    return nodes;
+};
+
+/**
+ * Ordena los AS según la conectividad entre ellos.
+ * @param {Array} asNodes - Lista de nodos AS.
+ * @param {Array} edges - Lista de enlaces del grafo.
+ * @returns {Array} Lista de nodos AS ordenados.
+ */
+const sortASByConnectivity = (asNodes, edges) => {
+    const connectivity = {};
+    asNodes.forEach(node => connectivity[node.data.id] = new Set());
+    
+    edges.forEach(edge => {
+        const sourceAS = asNodes.find(n => n.data.id === edge.data.source.split('_')[0])?.data.id;
+        const targetAS = asNodes.find(n => n.data.id === edge.data.target.split('_')[0])?.data.id;
+        if (sourceAS && targetAS && sourceAS !== targetAS) {
+            connectivity[sourceAS].add(targetAS);
+            connectivity[targetAS].add(sourceAS);
+        }
+    });
+
+    // Ordenar por grado de conectividad (número de conexiones)
+    return asNodes.sort((a, b) => connectivity[b.data.id].size - connectivity[a.data.id].size);
+};
+
+/**
+ * Carga y posiciona los nodos del grafo en una estructura jerárquica optimizada para BGP.
+ */
+export const loadData = (nodes, edges = [], cyContainer = null) => {
     const savedData = isLocalStorageAvailable() ? JSON.parse(localStorage.getItem("bgpNodeData") || "{}") : {};
     const nonInterfaceNodes = nodes.filter(node => node.data.type !== "interface");
     const interfaceNodes = nodes.filter(node => node.data.type === "interface");
 
-    // Index for quick access
     const nodeIndex = nodes.reduce((acc, node) => {
         acc[node.data.id] = node;
         return acc;
     }, {});
 
-    // Map AS to its routers
     const asToRouters = {};
     nonInterfaceNodes.forEach(node => {
         if (node.data.parent) {
-            if (!asToRouters[node.data.parent]) {
-                asToRouters[node.data.parent] = [];
-            }
+            if (!asToRouters[node.data.parent]) asToRouters[node.data.parent] = [];
             asToRouters[node.data.parent].push(node);
         }
     });
 
-    // Map routers to their interfaces
     const routerToInterfaces = {};
     interfaceNodes.forEach(node => {
         const routerId = node.data.router;
@@ -185,45 +226,63 @@ export const loadData = (nodes, edges = []) => {
         routerToInterfaces[routerId].push(node);
     });
 
-    // Posicionar AS en una línea horizontal en la parte superior
-    const asNodes = nonInterfaceNodes.filter(n => !n.data.parent);
-    const asSpacing = 200; // Espaciado entre AS
-    const asY = 100; // Altura de los AS
-    asNodes.forEach((node, index) => {
-        const x = (index - (asNodes.length - 1) / 2) * asSpacing; // Centrar los AS
-        node.position = { x, y: asY };
-        node.data.defaultPosition = { x, y: asY }; // Guardar posición predeterminada
-        node.data.color = savedData.colors?.nodes?.[node.data.id] || node.data.color || "#ddd";
-        node.locked = true; // Fijar ASes
-    });
+    const viewportWidth = cyContainer ? cyContainer.offsetWidth : 1200;
+    const viewportHeight = cyContainer ? cyContainer.offsetHeight : 800;
 
-    // Posicionar routers debajo de sus AS, centrados
-    const routerSpacing = 50; // Espaciado entre routers
-    const routerY = 250; // Altura de los routers
+    let asNodes = nonInterfaceNodes.filter(n => !n.data.parent);
+    asNodes = sortASByConnectivity(asNodes, edges); // Ordenar AS por conectividad
+    const asCount = asNodes.length;
+    const maxRoutersPerAS = Math.max(...Object.values(asToRouters).map(routers => routers.length), 1);
+    const maxInterfacesPerRouter = Math.max(...Object.values(routerToInterfaces).map(interfaces => interfaces.length), 1);
+
+    const asSpacing = Math.min(300, viewportWidth / (asCount + 1));
+    const routerSpacing = Math.min(60, viewportWidth / (maxRoutersPerAS * asCount + 1));
+    const interfaceSpacing = Math.min(30, viewportWidth / (maxInterfacesPerRouter * maxRoutersPerAS * asCount + 1));
+
+    const asY = viewportHeight * 0.15;
+    const routerY = viewportHeight * 0.45;
+    const interfaceY = viewportHeight * 0.75;
+
+    // Posicionar AS según conectividad
+    asNodes.forEach((node, index) => {
+        const savedPos = savedData.positions?.[node.data.id];
+        const x = savedPos?.x || (viewportWidth / 2 - (asCount - 1) * asSpacing / 2 + index * asSpacing);
+        node.position = { x, y: savedPos?.y || asY };
+        node.data.defaultPosition = { x, y: asY };
+        node.data.color = savedData.colors?.nodes?.[node.data.id] || node.data.color || "#ddd";
+        node.locked = false; // Permitir movimiento
+    });
+    resolveOverlaps(asNodes, asSpacing, 250);
+
+    // Posicionar routers con ajuste por conectividad
     Object.entries(asToRouters).forEach(([asId, routers]) => {
         const asNode = nodeIndex[asId];
         const asX = asNode.position.x;
+        const connectivity = routers.map(r => edges.filter(e => e.data.source.includes(r.data.id) || e.data.target.includes(r.data.id)).length);
+        routers.sort((a, b) => connectivity[routers.indexOf(b)] - connectivity[routers.indexOf(a)]); // Ordenar por grado de conexión
         routers.forEach((router, index) => {
-            const routerX = asX + (index - (routers.length - 1) / 2) * routerSpacing; // Centrar routers bajo el AS
-            router.position = { x: routerX, y: routerY };
-            router.data.defaultPosition = { x: routerX, y: routerY }; // Guardar posición predeterminada
+            const savedPos = savedData.positions?.[router.data.id];
+            const routerX = savedPos?.x || (asX - (routers.length - 1) * routerSpacing / 2 + index * routerSpacing);
+            router.position = { x: routerX, y: savedPos?.y || routerY };
+            router.data.defaultPosition = { x: routerX, y: routerY };
             router.data.color = savedData.colors?.nodes?.[router.data.id] || router.data.color || "#00FF00";
-            router.locked = false; // Desbloquear routers
+            router.locked = false;
         });
+        resolveOverlaps(routers, routerSpacing, 60);
     });
 
-    // Posicionar interfaces debajo de sus routers, centradas
-    const interfaceSpacing = 30; // Espaciado entre interfaces
-    const interfaceY = 350; // Altura de las interfaces
+    // Posicionar interfaces
     Object.entries(routerToInterfaces).forEach(([routerId, interfaces]) => {
         const router = nodeIndex[routerId];
         const routerX = router.position.x;
         interfaces.forEach((intfNode, index) => {
-            const intfX = routerX + (index - (interfaces.length - 1) / 2) * interfaceSpacing; // Centrar interfaces bajo el router
-            intfNode.position = { x: intfX, y: interfaceY };
-            intfNode.data.defaultPosition = { x: intfX, y: interfaceY }; // Guardar posición predeterminada
-            intfNode.locked = false; // Desbloquear interfaces
+            const savedPos = savedData.positions?.[intfNode.data.id];
+            const intfX = savedPos?.x || (routerX - (interfaces.length - 1) * interfaceSpacing / 2 + index * interfaceSpacing);
+            intfNode.position = { x: intfX, y: savedPos?.y || interfaceY };
+            intfNode.data.defaultPosition = { x: intfX, y: interfaceY };
+            intfNode.locked = false;
         });
+        resolveOverlaps(interfaces, interfaceSpacing, 20);
     });
 
     return nonInterfaceNodes.concat(interfaceNodes);

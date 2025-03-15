@@ -1,4 +1,6 @@
 import { log, rgbToHex, showNotification, isLocalStorageAvailable, CONFIG, debounce } from './utils.js';
+import { loadData } from './data.js'; // Importar loadData
+import { bgpHierarchicalLayout } from './visualization.js'; // Importar bgpHierarchicalLayout
 
 /**
  * Configura la interactividad del grafo, incluyendo tooltips, cambio de colores, alternar etiquetas de enlaces, y navegación por teclado.
@@ -132,15 +134,29 @@ export const setupInteractivity = (cy) => {
     };
 
     const resetPositions = () => {
-        // Restaurar posiciones predeterminadas guardadas en defaultPosition
-        cy.nodes().forEach(node => {
-            if (node.data("defaultPosition")) {
-                node.position(node.data("defaultPosition"));
-            }
+        // Obtener los datos actuales del grafo
+        const nodes = cy.nodes().map(node => ({
+            data: node.data(),
+            position: null // Limpiar posiciones para recalcular
+        }));
+        const edges = cy.edges().map(edge => ({ data: edge.data() }));
+
+        // Recalcular posiciones iniciales con loadData
+        const newNodes = loadData(nodes, edges, cy.container());
+        
+        // Actualizar las posiciones en el grafo
+        newNodes.forEach(newNode => {
+            const node = cy.getElementById(newNode.data.id);
+            node.position(newNode.position);
+            node.data("defaultPosition", newNode.position); // Actualizar posición predeterminada
         });
-        cy.resize(); // Actualizar la visualización
-        cy.fit(); // Ajustar el zoom para que todo sea visible
-        showNotification("Posiciones reseteadas a estructura jerárquica.");
+
+        // Aplicar el layout jerárquico optimizado
+        bgpHierarchicalLayout(cy, newNodes, edges);
+
+        cy.resize();
+        cy.fit();
+        showNotification("Posiciones recalculadas y optimizadas.");
     };
 
     const resetColors = () => {
