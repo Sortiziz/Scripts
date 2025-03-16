@@ -1,11 +1,7 @@
 import { log, rgbToHex, showNotification, isLocalStorageAvailable, CONFIG, debounce } from './utils.js';
-import { loadData } from './data.js'; // Importar loadData
-import { bgpHierarchicalLayout } from './visualization.js'; // Importar bgpHierarchicalLayout
+import { loadData } from './data.js';
+import { bgpHierarchicalLayout } from './visualization.js';
 
-/**
- * Configura la interactividad del grafo, incluyendo tooltips, cambio de colores, alternar etiquetas de enlaces, y navegación por teclado.
- * @param {cytoscape.Core} cy - Instancia de Cytoscape.
- */
 export const setupInteractivity = (cy) => {
     const edgeLabelStates = new Map();
 
@@ -134,29 +130,52 @@ export const setupInteractivity = (cy) => {
     };
 
     const resetPositions = () => {
+        console.log("Iniciando resetPositions...");
+
+        // Limpiar posiciones guardadas para forzar recálculo
+        localStorage.removeItem("bgpNodeData");
+        
         // Obtener los datos actuales del grafo
         const nodes = cy.nodes().map(node => ({
             data: node.data(),
-            position: null // Limpiar posiciones para recalcular
+            position: null // Limpiar posiciones para forzar recálculo
         }));
         const edges = cy.edges().map(edge => ({ data: edge.data() }));
+
+        console.log("Nodos antes de loadData:", nodes.map(n => ({ id: n.data.id, position: n.position })));
 
         // Recalcular posiciones iniciales con loadData
         const newNodes = loadData(nodes, edges, cy.container());
         
+        console.log("Nodos después de loadData:", newNodes.map(n => ({ id: n.data.id, position: n.position })));
+
+        // Resetear el estado del grafo
+        cy.reset();
+
         // Actualizar las posiciones en el grafo
-        newNodes.forEach(newNode => {
-            const node = cy.getElementById(newNode.data.id);
-            node.position(newNode.position);
-            node.data("defaultPosition", newNode.position); // Actualizar posición predeterminada
+        cy.batch(() => {
+            newNodes.forEach(newNode => {
+                const node = cy.getElementById(newNode.data.id);
+                node.position(newNode.position);
+                node.data("defaultPosition", newNode.position);
+            });
         });
+
+        console.log("Nodos después de aplicar posiciones:", cy.nodes().map(n => ({ id: n.id(), position: n.position() })));
 
         // Aplicar el layout jerárquico optimizado
         bgpHierarchicalLayout(cy, newNodes, edges);
 
+        console.log("Nodos después de bgpHierarchicalLayout:", cy.nodes().map(n => ({ id: n.id(), position: n.position() })));
+
+        // Forzar actualización visual
+        cy.layout({ name: 'preset' }).run();
         cy.resize();
         cy.fit();
+        cy.center();
+
         showNotification("Posiciones recalculadas y optimizadas.");
+        console.log("resetPositions completado.");
     };
 
     const resetColors = () => {
@@ -233,10 +252,6 @@ export const setupInteractivity = (cy) => {
     });
 };
 
-/**
- * Configura la búsqueda y el filtrado en el grafo.
- * @param {cytoscape.Core} cy - Instancia de Cytoscape.
- */
 export const setupSearchAndFilter = (cy) => {
     const searchInput = document.getElementById("search-input");
     const filterType = document.getElementById("filter-type");
