@@ -68,6 +68,16 @@ export const is_valid_subnet = (subnet) => {
     return !isNaN(num) && num >= 0 && num <= 32;
 };
 
+export const ipToInt = (ip) => {
+    return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0);
+};
+
+export const getNetworkAddress = (ip, mask) => {
+    const ipInt = ipToInt(ip);
+    const maskInt = (0xFFFFFFFF << (32 - mask)) & 0xFFFFFFFF;
+    return ipInt & maskInt;
+};
+
 export const debounce = (func, delay) => {
     let timeout;
     return function (...args) {

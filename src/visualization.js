@@ -1,49 +1,129 @@
 import { log, CONFIG, rgbToHex, isLocalStorageAvailable } from './utils.js';
 import { validateGraphData, loadData, generateInterfaceNodes, transformEdges, addHierarchicalEdges } from './data.js';
 
-export const bgpHierarchicalLayout = (cy, nodes, edges) => {
-    console.log("Ejecutando bgpHierarchicalLayout...");
-    const repulsionForce = 3000; // Reducido para evitar dispersión excesiva
-    const attractionForce = 0.15; // Aumentado para acercar nodos conectados
-    const damping = 0.9;
-    const maxIterations = 300; // Aumentado para grafos complejos
+export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
+    console.log("Ejecutando bgpHierarchicalLayout...", { isRealTime });
 
-    // Mapa de nodos para manejar posiciones y velocidades
+    const asY = cy.height() * 0.15;
+    const routerYRange = [cy.height() * 0.25, cy.height() * 0.45];
+    const routerRadius = 120;
+    const interfaceRadius = 60;
+    const repulsionForce = 1000;
+    const attractionForce = 0.3;
+    const interfaceAttractionForce = 1.5; // Mantenida para posicionamiento relativo
+    const interfaceRepulsionForce = 2500;
+    const maxInterfaceDistance = 70;
+    const maxIterations = isRealTime ? 100 : 200;
+
     const nodeMap = {};
     nodes.forEach(node => {
-        nodeMap[node.data.id] = { 
-            pos: { x: node.position.x, y: node.position.y }, 
-            vel: { x: 0, y: 0 }, 
-            type: node.data.type || (node.data.parent ? 'router' : 'as') 
+        nodeMap[node.data.id] = {
+            pos: { x: node.position.x || 0, y: node.position.y || 0 },
+            vel: { x: 0, y: 0 },
+            type: node.data.type || (node.data.parent && !node.data.router ? 'router' : 'as'),
+            router: node.data.router || null,
+            parent: node.data.parent || null,
+            locked: node.data.locked || false,
+            subnetConflicts: []
         };
     });
 
-    // Iteraciones principales para fuerzas dirigidas
+    const asNodes = nodes.filter(n => !n.data.parent && !n.data.type);
+    const numAS = asNodes.length;
+    const asSpacing = Math.min(400, cy.width() / (numAS + 1));
+    asNodes.forEach((node, index) => {
+        if (nodeMap[node.data.id].locked) return;
+        const x = (cy.width() / 2 - (numAS - 1) * asSpacing / 2 + index * asSpacing);
+        nodeMap[node.data.id].pos = { x, y: asY };
+    });
+
+    const routerNodes = nodes.filter(n => n.data.parent && !n.data.type);
+    const asToRouters = {};
+    routerNodes.forEach(node => {
+        if (!asToRouters[node.data.parent]) asToRouters[node.data.parent] = [];
+        asToRouters[node.data.parent].push(node);
+    });
+    Object.entries(asToRouters).forEach(([asId, routers]) => {
+        const asPos = nodeMap[asId].pos;
+        const numRouters = routers.length;
+        const baseAngle = Math.random() * 2 * Math.PI;
+        const routerY = (routerYRange[0] + routerYRange[1]) / 2;
+        routers.forEach((router, index) => {
+            if (nodeMap[router.data.id].locked) return;
+            const angle = baseAngle + (2 * Math.PI / numRouters) * index;
+            nodeMap[router.data.id].pos = {
+                x: asPos.x + routerRadius * Math.cos(angle),
+                y: routerY + (routerRadius * 0.5) * Math.sin(angle)
+            };
+        });
+    });
+
+    const interfaceNodes = nodes.filter(n => n.data.type === "interface");
+    const routerToInterfaces = {};
+    interfaceNodes.forEach(node => {
+        const routerId = node.data.router;
+        if (!routerToInterfaces[routerId]) routerToInterfaces[routerId] = [];
+        routerToInterfaces[routerId].push(node);
+    });
+    Object.entries(routerToInterfaces).forEach(([routerId, interfaces]) => {
+        const routerPos = nodeMap[routerId].pos;
+        const numInterfaces = interfaces.length;
+        const baseAngle = Math.random() * 2 * Math.PI;
+        interfaces.forEach((intf, index) => {
+            if (nodeMap[intf.data.id].locked) return;
+            const angle = baseAngle + (2 * Math.PI / numInterfaces) * index;
+            nodeMap[intf.data.id].pos = {
+                x: routerPos.x + interfaceRadius * Math.cos(angle),
+                y: routerPos.y + interfaceRadius * Math.sin(angle)
+            };
+        });
+    });
+
+    const subnetMap = new Map();
+    edges.forEach(edge => {
+        const isOriginalEdge = edge.data.hasOwnProperty('sourceInterface') && edge.data.hasOwnProperty('targetInterface');
+        const sourceIsRouter = nodes.find(n => n.data.id === edge.data.source && n.data.parent && !n.data.type);
+        const targetIsRouter = nodes.find(n => n.data.id === edge.data.target && n.data.parent && !n.data.type);
+        if (isOriginalEdge && sourceIsRouter && targetIsRouter && edge.data.weight) {
+            const subnet = edge.data.weight.split('/')[0];
+            if (!subnet) {
+                console.warn(`Subred inválida en arista ${edge.data.source} -> ${edge.data.target}: ${edge.data.weight}`);
+                return;
+            }
+            const sourceNodeId = edge.data.source;
+            const targetNodeId = edge.data.target;
+            if (subnetMap.has(subnet)) {
+                const prevTarget = subnetMap.get(subnet);
+                console.warn(`Posible bucle o conflicto de subred: ${subnet} usado en ${sourceNodeId} y ${prevTarget}, ahora en ${targetNodeId}`);
+            } else {
+                subnetMap.set(subnet, targetNodeId);
+            }
+        }
+    });
+
     for (let i = 0; i < maxIterations; i++) {
-        // Repulsión entre nodos
         Object.keys(nodeMap).forEach(id1 => {
             Object.keys(nodeMap).forEach(id2 => {
-                if (id1 === id2) return;
+                if (id1 === id2 || nodeMap[id1].locked || nodeMap[id2].locked) return;
                 const n1 = nodeMap[id1];
                 const n2 = nodeMap[id2];
                 const dx = n1.pos.x - n2.pos.x;
                 const dy = n1.pos.y - n2.pos.y;
                 const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
-                const force = repulsionForce / (distance * distance);
-                const fx = (dx / distance) * force;
-                const fy = (dy / distance) * force;
+                const force = (n1.type === "interface" && n2.type === "interface") ? interfaceRepulsionForce : repulsionForce;
+                const fx = (dx / distance) * (force / (distance * distance));
+                const fy = (dy / distance) * (force / (distance * distance));
                 n1.vel.x += fx;
-                n1.vel.y += n1.type === 'as' ? fy * 0.1 : fy; // Menor movimiento vertical para AS
+                n1.vel.y += fy;
                 n2.vel.x -= fx;
-                n2.vel.y -= n2.type === 'as' ? fy * 0.1 : fy;
+                n2.vel.y -= fy;
             });
         });
 
-        // Atracción por enlaces
         edges.forEach(edge => {
             const source = nodeMap[edge.data.source];
             const target = nodeMap[edge.data.target];
-            if (!source || !target) return;
+            if (!source || !target || source.locked || target.locked) return;
             const dx = target.pos.x - source.pos.x;
             const dy = target.pos.y - source.pos.y;
             const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
@@ -51,83 +131,93 @@ export const bgpHierarchicalLayout = (cy, nodes, edges) => {
             const fx = (dx / distance) * force;
             const fy = (dy / distance) * force;
             source.vel.x += fx;
-            source.vel.y += source.type === 'as' ? fy * 0.1 : fy;
+            source.vel.y += fy;
             target.vel.x -= fx;
-            target.vel.y -= target.type === 'as' ? fy * 0.1 : fy;
+            target.vel.y -= fy;
         });
 
-        // Actualizar posiciones con amortiguación
+        interfaceNodes.forEach(intf => {
+            const intfNode = nodeMap[intf.data.id];
+            const routerNode = nodeMap[intf.data.router];
+            if (!routerNode || intfNode.locked) return;
+            const dx = routerNode.pos.x - intfNode.pos.x;
+            const dy = routerNode.pos.y - intfNode.pos.y;
+            const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+            const force = interfaceAttractionForce * distance;
+            const fx = (dx / distance) * force;
+            const fy = (dy / distance) * force;
+            intfNode.vel.x += fx;
+            intfNode.vel.y += fy;
+        });
+
         Object.keys(nodeMap).forEach(id => {
             const node = nodeMap[id];
-            node.pos.x += node.vel.x * damping;
-            node.pos.y += node.vel.y * damping;
-            node.vel.x *= damping;
-            node.vel.y *= damping;
-            // Restricciones jerárquicas estrictas
-            if (node.type === 'as') {
-                node.pos.y = cy.height() * 0.15; // Fijar AS en la parte superior
-            } else if (node.type === 'router') {
-                node.pos.y = Math.max(Math.min(node.pos.y, cy.height() * 0.55), cy.height() * 0.25);
-            } else {
-                node.pos.y = Math.max(node.pos.y, cy.height() * 0.75);
+            if (node.locked) return;
+            node.pos.x += node.vel.x * 0.9;
+            node.pos.y += node.vel.y * 0.9;
+            node.vel.x *= 0.9;
+            node.vel.y *= 0.9;
+
+            if (node.type === "interface" && node.router) {
+                const routerPos = nodeMap[node.router].pos;
+                const dx = node.pos.x - routerPos.x;
+                const dy = node.pos.y - routerPos.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance > maxInterfaceDistance) {
+                    const scale = maxInterfaceDistance / distance;
+                    node.pos.x = routerPos.x + dx * scale;
+                    node.pos.y = routerPos.y + dy * scale;
+                }
             }
         });
+    }
+
+    const reorderToMinimizeCrossings = () => {
+        Object.entries(asToRouters).forEach(([asId, routers]) => {
+            const routerConnectivity = routers.map(r => ({
+                node: r,
+                connections: edges.filter(e => e.data.source.includes(r.data.id) || e.data.target.includes(r.data.id)).length
+            }));
+            routerConnectivity.sort((a, b) => b.connections - a.connections);
+            const asPos = nodeMap[asId].pos;
+            const numRouters = routers.length;
+            const baseAngle = Math.random() * 2 * Math.PI;
+            routerConnectivity.forEach((r, index) => {
+                const router = nodeMap[r.node.data.id];
+                if (router.locked) return;
+                const angle = baseAngle + (2 * Math.PI / numRouters) * index;
+                router.pos.x = asPos.x + routerRadius * Math.cos(angle);
+                router.pos.y = routerYRange[0] + (routerYRange[1] - routerYRange[0]) * Math.sin(angle);
+            });
+        });
+
+        Object.entries(routerToInterfaces).forEach(([routerId, interfaces]) => {
+            const interfaceConnectivity = interfaces.map(intf => ({
+                node: intf,
+                connections: edges.filter(e => e.data.source === intf.data.id || e.data.target === intf.data.id).length
+            }));
+            interfaceConnectivity.sort((a, b) => b.connections - a.connections);
+            const routerPos = nodeMap[routerId].pos;
+            const numInterfaces = interfaces.length;
+            const baseAngle = Math.random() * 2 * Math.PI;
+            interfaceConnectivity.forEach((intf, index) => {
+                const interfaceNode = nodeMap[intf.node.data.id];
+                if (interfaceNode.locked) return;
+                const angle = baseAngle + (2 * Math.PI / numInterfaces) * index;
+                interfaceNode.pos.x = routerPos.x + interfaceRadius * Math.cos(angle);
+                interfaceNode.pos.y = routerPos.y + interfaceRadius * Math.sin(angle);
+            });
+        });
     };
+    reorderToMinimizeCrossings();
 
-    // Post-procesamiento para minimizar cruces (inspirado en Sugiyama)
-    // Ordenar nodos dentro de cada nivel para reducir cruces
-    const asNodes = nodes.filter(n => !n.data.parent && !n.data.type);
-    const routerNodes = nodes.filter(n => n.data.parent && !n.data.type);
-    const interfaceNodes = nodes.filter(n => n.data.type === "interface");
-
-    // Ordenar AS por conectividad (ya hecho en loadData)
-    // Ordenar routers dentro de cada AS por número de conexiones
-    const asToRouters = {};
-    routerNodes.forEach(node => {
-        if (!asToRouters[node.data.parent]) asToRouters[node.data.parent] = [];
-        asToRouters[node.data.parent].push(node);
-    });
-
-    Object.entries(asToRouters).forEach(([asId, routers]) => {
-        const routerConnectivity = routers.map(r => {
-            const connections = edges.filter(e => e.data.source.includes(r.data.id) || e.data.target.includes(r.data.id)).length;
-            return { node: r, connections };
-        });
-        routerConnectivity.sort((a, b) => b.connections - a.connections);
-        const asNode = nodeMap[asId];
-        const asX = asNode.pos.x;
-        routerConnectivity.forEach((r, index) => {
-            const router = nodeMap[r.node.data.id];
-            router.pos.x = asX - (routers.length - 1) * 60 / 2 + index * 60; // Espaciado ajustado
-        });
-    });
-
-    // Ordenar interfaces por conectividad
-    const routerToInterfaces = {};
-    interfaceNodes.forEach(node => {
-        const routerId = node.data.router;
-        if (!routerToInterfaces[routerId]) routerToInterfaces[routerId] = [];
-        routerToInterfaces[routerId].push(node);
-    });
-
-    Object.entries(routerToInterfaces).forEach(([routerId, interfaces]) => {
-        const interfaceConnectivity = interfaces.map(intf => {
-            const connections = edges.filter(e => e.data.source === intf.data.id || e.data.target === intf.data.id).length;
-            return { node: intf, connections };
-        });
-        interfaceConnectivity.sort((a, b) => b.connections - a.connections);
-        const router = nodeMap[routerId];
-        const routerX = router.pos.x;
-        interfaceConnectivity.forEach((intf, index) => {
-            const interfaceNode = nodeMap[intf.node.data.id];
-            interfaceNode.pos.x = routerX - (interfaces.length - 1) * 30 / 2 + index * 30; // Espaciado ajustado
-        });
-    });
-
-    // Aplicar posiciones finales
-    cy.nodes().forEach(node => {
-        const pos = nodeMap[node.id()];
-        node.position({ x: pos.pos.x, y: pos.pos.y });
+    cy.nodes().animate({
+        position: (node) => ({
+            x: nodeMap[node.id()].pos.x,
+            y: nodeMap[node.id()].pos.y
+        }),
+        duration: 500,
+        easing: 'ease-in-out'
     });
 
     console.log("bgpHierarchicalLayout completado. Nuevas posiciones:", cy.nodes().map(n => ({ id: n.id(), position: n.position() })));
@@ -152,6 +242,28 @@ export const initializeGraph = async () => {
         const allNodes = loadData(data.nodes.concat(interfaceNodes), data.edges, cyContainer);
         const transformedEdges = transformEdges(data.edges, interfaceNodes);
         const allEdges = addHierarchicalEdges(allNodes, transformedEdges);
+
+        const subnetMap = new Map();
+        allEdges.forEach(edge => {
+            const isOriginalEdge = edge.data.hasOwnProperty('sourceInterface') && edge.data.hasOwnProperty('targetInterface');
+            const sourceIsRouter = allNodes.find(n => n.data.id === edge.data.source && n.data.parent && !n.data.type);
+            const targetIsRouter = allNodes.find(n => n.data.id === edge.data.target && n.data.parent && !n.data.type);
+            if (isOriginalEdge && sourceIsRouter && targetIsRouter && edge.data.weight) {
+                const subnet = edge.data.weight.split('/')[0];
+                if (!subnet) {
+                    console.warn(`Subred inválida en arista ${edge.data.source} -> ${edge.data.target}: ${edge.data.weight}`);
+                    return;
+                }
+                const sourceNodeId = edge.data.source;
+                const targetNodeId = edge.data.target;
+                if (subnetMap.has(subnet)) {
+                    const prevTarget = subnetMap.get(subnet);
+                    console.warn(`Posible bucle o conflicto de subred: ${subnet} usado en ${sourceNodeId} y ${prevTarget}, ahora en ${targetNodeId}`);
+                } else {
+                    subnetMap.set(subnet, targetNodeId);
+                }
+            }
+        });
 
         const cy = cytoscape({
             container: cyContainer,
@@ -208,15 +320,6 @@ export const initializeGraph = async () => {
                     style: { "line-color": "#000", opacity: 0 },
                 },
                 {
-                    selector: "edge[type='router-interface']",
-                    style: { 
-                        "line-color": "#000", 
-                        width: 2,
-                        opacity: 1,
-                        "curve-style": "straight",
-                    },
-                },
-                {
                     selector: "edge[type='router-connection']",
                     style: { 
                         "line-color": "transparent", 
@@ -225,12 +328,17 @@ export const initializeGraph = async () => {
                     },
                 },
                 {
-                    selector: "edge[!invisible][type!='hierarchical'][type!='router-interface']",
+                    selector: "edge[!invisible][type!='hierarchical']",
                     style: {
-                        "line-color": ele => ele.data("color") || CONFIG.DEFAULT_COLORS.EDGE,
+                        "line-color": ele => {
+                            return ele.data('status') === 'added' ? 'blue' :
+                                   ele.data('status') === 'removed' ? 'red' :
+                                   ele.data("color") || CONFIG.DEFAULT_COLORS.EDGE;
+                        },
+                        "line-style": ele => ele.data('status') === 'removed' ? 'dashed' : 'solid',
                         width: ele => Math.min(10, Math.max(1, parseFloat(ele.data("weight")?.split("/")[1]) / 8 || 3)),
                         label: "data(weight)",
-                        "font-size": 12,
+                        "font-size": 10,
                         "text-background-color": "#FFFFFF",
                         "text-background-opacity": 0.9,
                         "text-background-padding": 2,
@@ -256,12 +364,28 @@ export const initializeGraph = async () => {
             },
         });
 
+        cy.nodes().on('drag', evt => {
+            const node = evt.target;
+            node.data('locked', true);
+        });
+
         const savedData = isLocalStorageAvailable() ? JSON.parse(localStorage.getItem("bgpNodeData") || "{}") : {};
         const allNodesHaveSavedPositions = allNodes.every(node => savedData.positions?.[node.data.id]?.x && savedData.positions?.[node.data.id]?.y);
 
         if (!allNodesHaveSavedPositions) {
-            bgpHierarchicalLayout(cy, allNodes, allEdges);
+            bgpHierarchicalLayout(cy, allNodes, allEdges, false);
             cy.fit();
+            cy.zoom(0.8);
+            cy.center();
+        } else {
+            cy.nodes().forEach(node => {
+                const pos = savedData.positions[node.id()];
+                if (pos) node.position(pos);
+                node.data('locked', savedData.lockedNodes?.[node.id()] || false);
+            });
+            cy.fit();
+            cy.zoom(0.8);
+            cy.center();
         }
 
         return cy;
@@ -275,7 +399,7 @@ export const initializeGraph = async () => {
 };
 
 export const updateEdgeLabels = (cy) => {
-    cy.edges("[!invisible][type!='hierarchical'][type!='router-interface']").forEach(edge => {
+    cy.edges("[!invisible][type!='hierarchical']").forEach(edge => {
         const sourceIp = cy.getElementById(edge.data("source")).data("ip") || "N/A";
         const targetIp = cy.getElementById(edge.data("target")).data("ip") || "N/A";
         if (sourceIp === "N/A" || targetIp === "N/A") {
@@ -284,7 +408,7 @@ export const updateEdgeLabels = (cy) => {
         edge.style({
             "source-label": `.${getHostNumber(sourceIp)}`,
             "target-label": `.${getHostNumber(targetIp)}`,
-            "font-size": 12,
+            "font-size": 10,
             "color": "#00008B",
             "text-background-color": "#FFFFFF",
             "text-background-opacity": 0.9,

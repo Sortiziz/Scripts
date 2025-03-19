@@ -1,9 +1,14 @@
 import { log, rgbToHex, showNotification, isLocalStorageAvailable, CONFIG, debounce } from './utils.js';
 import { loadData } from './data.js';
-import { bgpHierarchicalLayout } from './visualization.js';
+import { bgpHierarchicalLayout, initializeGraph, updateEdgeLabels } from './visualization.js';
 
 export const setupInteractivity = (cy) => {
     const edgeLabelStates = new Map();
+    let eventIndex = 0;
+    const events = [
+        { type: "addNode", node: { data: { id: "R16", label: "R16", parent: "AS5", interfaces: {} }, position: null }, edge: { data: { source: "R14", target: "R16", weight: "192.168.23.0/30", status: "added" } } },
+        { type: "removeEdge", edgeId: "R14_R13_192.168.18.0/30" }
+    ];
 
     const toggleEdgeLabel = (edge) => {
         const edgeId = edge.id();
@@ -15,7 +20,7 @@ export const setupInteractivity = (cy) => {
         edge.style({
             "source-label": newState === "host" ? `.${getHostNumber(sourceIp)}` : sourceIp,
             "target-label": newState === "host" ? `.${getHostNumber(targetIp)}` : targetIp,
-            "font-size": 12,
+            "font-size": 10,
             "color": "#00008B",
             "text-background-color": "#FFFFFF",
             "text-background-opacity": 0.9,
@@ -23,7 +28,7 @@ export const setupInteractivity = (cy) => {
         });
     };
 
-    cy.edges("[!invisible][type!='hierarchical'][type!='router-interface']").on("click", evt => {
+    cy.edges("[!invisible][type!='hierarchical']").on("click", evt => {
         toggleEdgeLabel(evt.target);
     });
 
@@ -90,6 +95,7 @@ export const setupInteractivity = (cy) => {
     const setupTooltips = () => {
         cy.nodes().forEach(node => {
             let tip;
+            const connections = cy.edges().filter(e => e.data("source") === node.id() || e.data("target") === node.id()).length;
             node.on("mouseover", () => {
                 if (!tip) {
                     const div = document.createElement("div");
@@ -97,8 +103,8 @@ export const setupInteractivity = (cy) => {
                     popperContainer.appendChild(div);
                     tip = tippy(div, {
                         content: node.data("type") === "interface"
-                            ? `Interfaz: ${node.data("label")}<br>Router: ${node.data("router")}<br>IP: ${node.data("ip")}`
-                            : `ID: ${node.id()}<br>AS: ${node.data("parent") || "N/A"}`,
+                            ? `Interfaz: ${node.data("label")}<br>Router: ${node.data("router")}<br>IP: ${node.data("ip")}<br>Conexiones: ${connections}`
+                            : `ID: ${node.id()}<br>AS: ${node.data("parent") || "N/A"}<br>Conexiones: ${connections}`,
                         theme: "light",
                         placement: "top",
                         trigger: "manual",
@@ -111,6 +117,11 @@ export const setupInteractivity = (cy) => {
     };
     setupTooltips();
 
+    cy.nodes().on('drag', evt => {
+        const node = evt.target;
+        node.data('locked', true);
+    });
+
     const saveData = () => {
         if (!isLocalStorageAvailable()) {
             showNotification("No se puede guardar: localStorage no disponible", "error");
@@ -118,65 +129,119 @@ export const setupInteractivity = (cy) => {
         }
         const positions = {};
         const colors = { nodes: {}, edges: {} };
+        const lockedNodes = {};
         cy.nodes().forEach(node => {
             positions[node.id()] = node.position();
             colors.nodes[node.id()] = rgbToHex(node.style("background-color"));
+            lockedNodes[node.id()] = node.data('locked') || false;
         });
         cy.edges("[!invisible][type!='hierarchical']").forEach(edge => {
             colors.edges[edge.id()] = rgbToHex(edge.style("line-color"));
         });
-        localStorage.setItem("bgpNodeData", JSON.stringify({ positions, colors }));
+        localStorage.setItem("bgpNodeData", JSON.stringify({ positions, colors, lockedNodes }));
         showNotification("Datos guardados correctamente.");
     };
 
     const resetPositions = () => {
         console.log("Iniciando resetPositions...");
-
-        // Limpiar posiciones guardadas para forzar recálculo
         localStorage.removeItem("bgpNodeData");
-        
-        // Obtener los datos actuales del grafo
         const nodes = cy.nodes().map(node => ({
             data: node.data(),
-            position: null // Limpiar posiciones para forzar recálculo
+            position: null
         }));
         const edges = cy.edges().map(edge => ({ data: edge.data() }));
-
         console.log("Nodos antes de loadData:", nodes.map(n => ({ id: n.data.id, position: n.position })));
-
-        // Recalcular posiciones iniciales con loadData
         const newNodes = loadData(nodes, edges, cy.container());
-        
         console.log("Nodos después de loadData:", newNodes.map(n => ({ id: n.data.id, position: n.position })));
-
-        // Resetear el estado del grafo
         cy.reset();
-
-        // Actualizar las posiciones en el grafo
         cy.batch(() => {
             newNodes.forEach(newNode => {
                 const node = cy.getElementById(newNode.data.id);
                 node.position(newNode.position);
-                node.data("defaultPosition", newNode.position);
+                node.data('defaultPosition', newNode.position);
+                node.data('locked', false);
             });
         });
-
         console.log("Nodos después de aplicar posiciones:", cy.nodes().map(n => ({ id: n.id(), position: n.position() })));
-
-        // Aplicar el layout jerárquico optimizado
-        bgpHierarchicalLayout(cy, newNodes, edges);
-
+        bgpHierarchicalLayout(cy, newNodes, edges, false);
         console.log("Nodos después de bgpHierarchicalLayout:", cy.nodes().map(n => ({ id: n.id(), position: n.position() })));
-
-        // Forzar actualización visual
         cy.layout({ name: 'preset' }).run();
         cy.resize();
         cy.fit();
+        cy.zoom(0.8);
         cy.center();
-
         showNotification("Posiciones recalculadas y optimizadas.");
         console.log("resetPositions completado.");
     };
+
+    const timeSliderContainer = document.createElement("div");
+    timeSliderContainer.style.marginTop = "10px";
+    const timeSliderLabel = document.createElement("label");
+    timeSliderLabel.setAttribute("for", "time-slider");
+    timeSliderLabel.textContent = "Evento: ";
+    const timeSlider = document.createElement("input");
+    timeSlider.type = "range";
+    timeSlider.id = "time-slider";
+    timeSlider.min = "0";
+    timeSlider.max = events.length.toString();
+    timeSlider.value = "0";
+    timeSlider.step = "1";
+    timeSlider.style.width = "200px";
+    timeSliderContainer.appendChild(timeSliderLabel);
+    timeSliderContainer.appendChild(timeSlider);
+    document.getElementById("controls").appendChild(timeSliderContainer);
+
+    timeSlider.addEventListener("input", (event) => {
+        const newIndex = parseInt(event.target.value);
+        if (newIndex === eventIndex) return;
+
+        if (newIndex > eventIndex) {
+            for (let i = eventIndex; i < newIndex; i++) {
+                const evt = events[i];
+                if (evt.type === "addNode") {
+                    const newNode = { data: evt.node.data, position: evt.node.position };
+                    const newEdge = { data: evt.edge.data };
+                    cy.add([newNode, newEdge]);
+                    const updatedNodes = cy.nodes().map(n => ({ data: n.data(), position: n.position() }));
+                    const updatedEdges = cy.edges().map(e => ({ data: e.data() }));
+                    bgpHierarchicalLayout(cy, updatedNodes, updatedEdges, true);
+                    showNotification(`Añadido nodo ${evt.node.data.id} y conexión.`);
+                } else if (evt.type === "removeEdge") {
+                    const edge = cy.edges().filter(e => e.id() === evt.edgeId)[0];
+                    if (edge) {
+                        edge.data('status', 'removed');
+                        setTimeout(() => cy.remove(edge), 1000);
+                    }
+                    const updatedNodes = cy.nodes().map(n => ({ data: n.data(), position: n.position() }));
+                    const updatedEdges = cy.edges().map(e => ({ data: e.data() }));
+                    bgpHierarchicalLayout(cy, updatedNodes, updatedEdges, true);
+                    showNotification(`Eliminada conexión ${evt.edgeId}.`);
+                }
+            }
+        } else {
+            cy.elements().remove();
+            initializeGraph().then(newCy => {
+                cy.add(newCy.elements());
+                for (let i = 0; i < newIndex; i++) {
+                    const evt = events[i];
+                    if (evt.type === "addNode") {
+                        const newNode = { data: evt.node.data, position: evt.node.position };
+                        const newEdge = { data: evt.edge.data };
+                        cy.add([newNode, newEdge]);
+                    }
+                }
+                const updatedNodes = cy.nodes().map(n => ({ data: n.data(), position: n.position() }));
+                const updatedEdges = cy.edges().map(e => ({ data: e.data() }));
+                bgpHierarchicalLayout(cy, updatedNodes, updatedEdges, true);
+                cy.fit();
+                cy.zoom(0.8);
+                cy.center();
+                showNotification("Grafo restaurado al evento seleccionado.");
+            });
+        }
+        eventIndex = newIndex;
+        updateEdgeLabels(cy);
+    });
 
     const resetColors = () => {
         cy.batch(() => {
