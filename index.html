@@ -26,32 +26,20 @@
             <option value="interface">Interfaz</option>
         </select>
         <label for="zoom-slider">Zoom: </label>
-        <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1" aria-label="Control de zoom">
+        <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1" aria-label="Control de zoom del mapa BGP">
         <button id="save-btn" aria-label="Guardar configuración">Guardar</button>
         <button id="reset-positions-btn" aria-label="Resetear posiciones">Resetear Posiciones</button>
         <button id="reset-colors-btn" aria-label="Resetear colores">Resetear Colores</button>
         <button id="export-btn" aria-label="Exportar configuración">Exportar</button>
-        <input type="file" id="import-input" accept=".json" style="display: none;" aria-label="Importar configuración">
+        <input type="file" id="import-input" accept=".json" class="hidden-input" aria-label="Seleccionar archivo de configuración">
         <button id="import-btn" aria-label="Importar configuración">Importar</button>
     </div>
     <div id="legend">
         <h3>Leyenda</h3>
-        <div class="legend-item">
-            <div class="legend-color" style="background-color: #ddd;"></div>
-            <span>Sistema Autónomo (AS)</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background-color: #00FF00;"></div>
-            <span>Router</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background-color: #FFA500;"></div>
-            <span>Interfaz</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background-color: #000;"></div>
-            <span>Conexión entre interfaces</span>
-        </div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #ddd;"></div><span>Sistema Autónomo (AS)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #00FF00;"></div><span>Router</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #FFA500;"></div><span>Interfaz</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #000;"></div><span>Conexión entre interfaces</span></div>
     </div>
     <div id="color-modal" role="dialog" aria-labelledby="modal-title" aria-hidden="true" tabindex="-1">
         <h4 id="modal-title">Selecciona el color para este elemento</h4>
@@ -65,6 +53,7 @@
     <div id="popper-container"></div>
     <div id="loading" class="loading">Cargando mapa...</div>
     <div id="notification-container"></div>
+    <noscript><p>Este mapa requiere JavaScript para funcionar. Por favor, habilite JavaScript en su navegador.</p></noscript>
 
     <script type="module" src="src/main.js"></script>
 </body>
