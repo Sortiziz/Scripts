@@ -12,9 +12,12 @@ body {
     background-color: #fff;
     transform: none !important;
     font-size: 100% !important;
-    display: block !important; /* Asegurar que el contenedor sea visible */
-    min-height: 400px; /* Asegurar un tamaño mínimo */
+    display: block !important;
+    min-height: 400px;
     min-width: 400px;
+    /* Asegurarse de que no haya estilos que sobrescriban el tamaño de los nodos */
+    --min-width: none !important;
+    --min-height: none !important;
 }
 
 #controls {

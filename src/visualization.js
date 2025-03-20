@@ -31,7 +31,6 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
         console.log(`Nodo ${node.data.id}: Posición inicial: (${pos.x}, ${pos.y})`);
     });
 
-    // Posicionar nodos AS
     const asNodes = nodes.filter(n => !n.data.parent && !n.data.type);
     const numAS = asNodes.length;
     const asSpacing = Math.min(400, cy.width() / (numAS + 1));
@@ -42,7 +41,6 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
         console.log(`AS ${node.data.id}: Posición: (${x}, ${asY})`);
     });
 
-    // Posicionar routers dentro de cada AS
     const routerNodes = nodes.filter(n => n.data.parent && !n.data.type);
     const asToRouters = {};
     routerNodes.forEach(node => {
@@ -65,7 +63,6 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
         });
     });
 
-    // Posicionar interfaces para cada router
     const interfaceNodes = nodes.filter(n => n.data.type === "interface");
     const routerToInterfaces = {};
     interfaceNodes.forEach(node => {
@@ -157,7 +154,6 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             node.vel.x *= 0.9;
             node.vel.y *= 0.9;
 
-            // Asegurarse de que los nodos estén dentro del área visible
             node.pos.x = Math.max(0, Math.min(cy.width(), node.pos.x));
             node.pos.y = Math.max(0, Math.min(cy.height(), node.pos.y));
         });
@@ -249,7 +245,7 @@ export const initializeGraph = async () => {
                 {
                     selector: "node[!parent]",
                     style: { 
-                        "background-color": CONFIG.DEFAULT_COLORS.AS || "#ddd", // Asegurar un color visible
+                        "background-color": CONFIG.DEFAULT_COLORS.AS || "#ddd",
                         shape: "rectangle", 
                         label: "data(label)", 
                         "font-size": 16, 
@@ -258,13 +254,13 @@ export const initializeGraph = async () => {
                         "border-style": "dashed", 
                         width: CONFIG.AS_SIZE.width || 150, 
                         height: CONFIG.AS_SIZE.height || 100,
-                        opacity: 1 // Asegurar visibilidad
+                        opacity: 1
                     }
                 },
                 {
                     selector: "node[parent][!type]",
                     style: { 
-                        "background-color": CONFIG.DEFAULT_COLORS.ROUTER || "#ffaa00", // Asegurar un color visible
+                        "background-color": CONFIG.DEFAULT_COLORS.ROUTER || "#ffaa00",
                         shape: "ellipse", 
                         label: "data(label)", 
                         width: 60, 
@@ -272,23 +268,24 @@ export const initializeGraph = async () => {
                         "font-size": 14, 
                         "border-width": 2, 
                         "border-color": "#000",
-                        opacity: 1 // Asegurar visibilidad
+                        opacity: 1
                     }
                 },
                 {
                     selector: "node[type='interface']",
                     style: { 
-                        "background-color": CONFIG.DEFAULT_COLORS.INTERFACE || "#00ff00", // Asegurar un color visible
+                        "background-color": CONFIG.DEFAULT_COLORS.INTERFACE || "#00ff00",
                         shape: "ellipse", 
                         label: ele => `${ele.data("router")}-${ele.data("label")}`, 
-                        width: 8, 
-                        height: 8, 
-                        "font-size": 6, 
+                        width: 5, // Ajustar a un tamaño pequeño pero visible
+                        height: 5, 
+                        "font-size": 4, // Ajustar el tamaño de la fuente
                         "border-width": 0.5, 
                         "border-color": "#000",
                         "text-valign": "center",
                         "text-halign": "center",
-                        opacity: 1 // Asegurar visibilidad
+                        opacity: 1,
+                        "min-zoomed-font-size": 2 // Asegurar que la fuente sea visible incluso con zoom
                     }
                 },
                 { 
@@ -311,7 +308,7 @@ export const initializeGraph = async () => {
                 {
                     selector: "edge[weight]",
                     style: {
-                        "line-color": ele => ele.data("color") || CONFIG.DEFAULT_COLORS.EDGE || "#000", // Asegurar un color visible
+                        "line-color": ele => ele.data("color") || CONFIG.DEFAULT_COLORS.EDGE || "#000",
                         width: ele => Math.min(10, Math.max(1, (parseFloat(ele.data("weight")?.split("/")[1]) || 3) / 8)),
                         label: "data(weight)",
                         "font-size": 10,
@@ -319,7 +316,7 @@ export const initializeGraph = async () => {
                         "text-background-opacity": 0.9,
                         "text-background-padding": 2,
                         "curve-style": "bezier",
-                        opacity: 1 // Asegurar visibilidad
+                        opacity: 1
                     }
                 }
             ],
@@ -339,10 +336,9 @@ export const initializeGraph = async () => {
 
         cy.layout({ name: 'preset' }).run();
         cy.fit();
-        cy.zoom(1.0);
+        cy.zoom(0.8); // Reducir el zoom para evitar que los nodos se escalen demasiado
         cy.center();
 
-        // Verificar que los nodos sean visibles después del layout
         cy.nodes().forEach(node => {
             console.log(`Nodo ${node.id()} después del layout: Posición: (${node.position().x}, ${node.position().y}), Visible: ${node.visible()}`);
         });
