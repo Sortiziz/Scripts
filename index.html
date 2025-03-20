@@ -1,50 +1,93 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BGP Network Map</title>
-    <link rel="stylesheet" href="lib/tippy.css">
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-    <div id="loading">Cargando...</div>
-    <div id="cy"></div>
-    <div id="popper-container"></div>
-    <div id="controls">
-        <input type="text" id="search-input" placeholder="Buscar nodo...">
-        <select id="filter-type">
-            <option value="all">Todos</option>
-            <option value="AS">Sistemas Autónomos</option>
-            <option value="router">Routers</option>
-            <option value="interface">Interfaces</option>
-        </select>
-        <button id="save-btn" aria-label="Guardar posiciones y colores">💾 Guardar</button>
-        <button id="reset-positions-btn" aria-label="Resetear posiciones">🔄 Resetear Posiciones</button>
-        <button id="reset-colors-btn" aria-label="Resetear colores">🎨 Resetear Colores</button>
-        <label for="zoom-slider">Zoom:</label>
-        <input type="range" id="zoom-slider" min="0.1" max="2" value="1" step="0.1">
-        <button id="export-btn" aria-label="Exportar configuración">📤 Exportar</button>
-        <button id="import-btn" aria-label="Importar configuración">📥 Importar</button>
-        <input type="file" id="import-input" class="hidden-input" accept=".json">
-    </div>
-    <div id="legend">
-        <div class="legend-item"><span class="legend-color"></span>Sistema Autónomo</div>
-        <div class="legend-item"><span class="legend-color"></span>Router</div>
-        <div class="legend-item"><span class="legend-color"></span>Interfaz</div>
-        <div class="legend-item"><span class="legend-color"></span>Enlace</div>
-    </div>
-    <div id="color-modal" role="dialog" aria-hidden="true">
-        <p id="type-label"></p>
-        <input type="color" id="color-input">
-        <button id="apply-color-btn" aria-label="Aplicar color">Aplicar</button>
-        <button id="cancel-color-btn" aria-label="Cancelar">Cancelar</button>
-    </div>
-
-    <!-- Cargar las librerías locales como scripts globales (excepto cytoscape, que se importa como módulo) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <title>Mapa de Rutas BGP</title>
+    
+    <!-- Cargar Cytoscape primero -->
+    <script src="lib/cytoscape.min.js"></script>
+    
+    <!-- Cargar popper y tippy -->
     <script src="lib/popper.min.js"></script>
     <script src="lib/tippy-bundle.umd.min.js"></script>
-    <!-- Cargar el script principal como un módulo ES -->
+    
+    <!-- Estilos -->
+    <link rel="stylesheet" href="lib/tippy.css"/>
+    <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+    <!-- Page header -->
+    <h1>Mapa de Rutas BGP</h1>
+    
+    <!-- Main graph container -->
+    <div id="cy" role="region" aria-label="Mapa interactivo de rutas BGP" tabindex="0"></div>
+    
+    <!-- Control panel -->
+    <div id="controls" role="toolbar" aria-label="Controles de visualización">
+        <!-- Search and filtering -->
+        <label for="search-input">Buscar: </label>
+        <input type="text" id="search-input" placeholder="Buscar nodo..." aria-label="Buscar nodo">
+        
+        <label for="filter-type">Filtrar: </label>
+        <select id="filter-type" aria-label="Filtrar por tipo">
+            <option value="all">Todos</option>
+            <option value="AS">AS</option>
+            <option value="router">Router</option>
+            <option value="interface">Interfaz</option>
+        </select>
+        
+        <!-- Zoom control -->
+        <label for="zoom-slider">Zoom: </label>
+        <input type="range" id="zoom-slider" min="0.1" max="2" step="0.1" value="1" aria-label="Control de zoom del mapa BGP">
+        
+        <!-- Save/Reset buttons -->
+        <button id="save-btn" aria-label="Guardar configuración">Guardar</button>
+        <button id="reset-positions-btn" aria-label="Resetear posiciones">Resetear Posiciones</button>
+        <button id="reset-colors-btn" aria-label="Resetear colores">Resetear Colores</button>
+        
+        <!-- Export/Import -->
+        <button id="export-btn" aria-label="Exportar configuración">Exportar</button>
+        <input type="file" id="import-input" accept=".json" class="hidden-input" aria-label="Seleccionar archivo de configuración">
+        <button id="import-btn" aria-label="Importar configuración">Importar</button>
+    </div>
+    
+    <!-- Legend -->
+    <div id="legend" role="region" aria-label="Leyenda del mapa">
+        <h3>Leyenda</h3>
+        <div class="legend-item"><div class="legend-color" style="background-color: #ddd;"></div><span>Sistema Autónomo (AS)</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #00FF00;"></div><span>Router</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #FFA500;"></div><span>Interfaz</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #000;"></div><span>Conexión entre interfaces</span></div>
+    </div>
+    
+    <!-- Color selection modal -->
+    <div id="color-modal" role="dialog" aria-labelledby="modal-title" aria-hidden="true" tabindex="-1">
+        <h4 id="modal-title">Selecciona el color para este elemento</h4>
+        <span id="type-label"></span>
+        <label for="color-input">Color: </label>
+        <input type="color" id="color-input" aria-label="Selector de color">
+        <br><br>
+        <button id="apply-color-btn" aria-label="Aplicar color seleccionado">Aplicar</button>
+        <button id="cancel-color-btn" aria-label="Cancelar selección de color">Cancelar</button>
+    </div>
+    
+    <!-- Container for tooltips -->
+    <div id="popper-container"></div>
+    
+    <!-- Loading indicator -->
+    <div id="loading" class="loading" role="status" aria-live="polite">Cargando mapa...</div>
+    
+    <!-- Notification container for alerts -->
+    <div id="notification-container" aria-live="polite"></div>
+    
+    <!-- Fallback for users without JavaScript -->
+    <noscript>
+        <p class="error-message">Este mapa requiere JavaScript para funcionar. Por favor, habilite JavaScript en su navegador.</p>
+    </noscript>
+
+    <!-- Cargar nuestro código como módulo ES6 (después de las bibliotecas) -->
     <script type="module" src="src/main.js"></script>
 </body>
 </html>

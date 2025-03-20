@@ -1,21 +1,38 @@
 /**
- * data.js
- *
- * This file validates and transforms the graph data.
- * The validateGraphData function checks that, for each edge,
- * the source and target IP addresses belong to the expected subnet.
+ * @fileoverview Data validation and transformation for the BGP graph visualization.
+ * Handles data preparation before rendering in Cytoscape.
  */
 
-export function validateGraphData(data) {
-    const nodeMap = new Map(data.nodes.map(node => [node.data.id, node.data]));
-    const ipMap = new Map();
+import { log, getNetworkAddress, ipToInt, showNotification } from './utils.js';
 
+// Definimos getNetmask localmente para evitar problemas con las importaciones
+const getNetmask = (prefix) => {
+    return prefix === 0 ? 0 : (~((1 << (32 - prefix)) - 1)) >>> 0;
+};
+
+/**
+ * Validates the graph data for consistency and correctness.
+ * Checks for duplicate IPs and subnet consistency.
+ * 
+ * @param {Object} data - The graph data containing nodes and edges
+ * @param {Array} data.nodes - Array of node objects
+ * @param {Array} data.edges - Array of edge objects
+ */
+export function validateGraphData(data) {
+    const nodeMap = new Map();
+    const ipMap = new Map();
+    
+    // Process nodes and build maps in a single pass
     data.nodes.forEach(node => {
+        nodeMap.set(node.data.id, node.data);
+        
         if (node.data.interfaces) {
             Object.entries(node.data.interfaces).forEach(([intfName, ip]) => {
                 const ipAddress = ip.split('/')[0];
                 if (ipMap.has(ipAddress)) {
-                    console.warn(`Dirección IP duplicada: ${ipAddress} en nodo ${node.data.id} (ya usada por ${ipMap.get(ipAddress)})`);
+                    const errorMsg = `Dirección IP duplicada: ${ipAddress} en nodo ${node.data.id} (ya usada por ${ipMap.get(ipAddress)})`;
+                    log(errorMsg);
+                    showNotification(errorMsg, "error");
                 } else {
                     ipMap.set(ipAddress, node.data.id);
                 }
@@ -23,6 +40,7 @@ export function validateGraphData(data) {
         }
     });
 
+    // Validate edge subnets
     data.edges.forEach(edge => {
         const { weight, source, target, sourceInterface, targetInterface } = edge.data;
         if (!weight || !sourceInterface || !targetInterface) return;
@@ -38,7 +56,9 @@ export function validateGraphData(data) {
         const sourceIP = sourceNode.interfaces[sourceInterface]?.split('/')[0];
         const targetIP = targetNode.interfaces[targetInterface]?.split('/')[0];
         if (!sourceIP || !targetIP) {
-            console.warn(`Interfaz ${sourceInterface} no encontrada en ${source} o ${targetInterface} no encontrada en ${target}`);
+            const errorMsg = `Interfaz ${sourceInterface} no encontrada en ${source} o ${targetInterface} no encontrada en ${target}`;
+            log(errorMsg);
+            showNotification(errorMsg, "error");
             return;
         }
 
@@ -46,35 +66,21 @@ export function validateGraphData(data) {
         const calculatedDstNetwork = getNetworkAddress(targetIP, prefix);
 
         if (calculatedSrcNetwork !== expectedNetwork || calculatedDstNetwork !== expectedNetwork) {
-            console.warn(
-                `IPs no están en la subred especificada para el enlace ${source} -> ${target}. ` +
+            const errorMsg = `IPs no están en la subred especificada para el enlace ${source} -> ${target}. ` +
                 `Subred esperada: ${expectedNetwork}/${prefix}, IP fuente: ${sourceIP} (red: ${calculatedSrcNetwork}), ` +
-                `IP destino: ${targetIP} (red: ${calculatedDstNetwork})`
-            );
+                `IP destino: ${targetIP} (red: ${calculatedDstNetwork})`;
+            log(errorMsg);
+            showNotification(errorMsg, "error");
         }
     });
 }
 
-function ipToInt(ip) {
-    return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0);
-}
-
-function getNetmask(prefix) {
-    return prefix === 0 ? 0 : (~((1 << (32 - prefix)) - 1)) >>> 0;
-}
-
-function getNetworkAddress(ip, prefix) {
-    const ipInt = ipToInt(ip);
-    const mask = getNetmask(prefix);
-    const networkInt = ipInt & mask;
-    return [
-        (networkInt >>> 24) & 0xFF,
-        (networkInt >>> 16) & 0xFF,
-        (networkInt >>> 8) & 0xFF,
-        networkInt & 0xFF
-    ].join('.');
-}
-
+/**
+ * Generates interface nodes from router nodes with interfaces.
+ * 
+ * @param {Array} nodes - Array of node objects
+ * @returns {Array} Array of generated interface node objects
+ */
 export function generateInterfaceNodes(nodes) {
     const interfaceNodes = [];
     nodes.forEach(node => {
@@ -96,6 +102,13 @@ export function generateInterfaceNodes(nodes) {
     return interfaceNodes;
 }
 
+/**
+ * Transforms edges to connect interface nodes instead of router nodes.
+ * 
+ * @param {Array} edges - Array of edge objects
+ * @param {Array} interfaceNodes - Array of interface node objects
+ * @returns {Array} Transformed edges connecting interfaces
+ */
 export function transformEdges(edges, interfaceNodes) {
     const intfMap = new Map();
     interfaceNodes.forEach(node => {
@@ -109,7 +122,9 @@ export function transformEdges(edges, interfaceNodes) {
         const targetIntfId = intfMap.get(`${target}-${targetInterface}`);
         
         if (!sourceIntfId || !targetIntfId) {
-            console.warn(`No se encontró interfaz para el enlace ${source} (${sourceInterface}) -> ${target} (${targetInterface})`);
+            const errorMsg = `No se encontró interfaz para el enlace ${source} (${sourceInterface}) -> ${target} (${targetInterface})`;
+            log(errorMsg);
+            showNotification(errorMsg, "error");
             return { data: { ...edge.data, source, target } };
         }
 
@@ -123,28 +138,46 @@ export function transformEdges(edges, interfaceNodes) {
     }).filter(edge => edge.data.source !== edge.data.target);
 }
 
+/**
+ * Adds hierarchical edges to connect parent-child nodes.
+ * 
+ * @param {Array} nodes - Array of node objects
+ * @param {Array} edges - Array of edge objects
+ * @returns {Array} All edges including hierarchical connections
+ */
 export function addHierarchicalEdges(nodes, edges) {
     const hierarchicalEdges = [];
+    
     nodes.forEach(node => {
-        // No generar aristas jerárquicas para evitar superposiciones
-        // if (node.data.parent && !node.data.type) {
-        //     hierarchicalEdges.push({
-        //         data: { source: node.data.parent, target: node.data.id, type: 'hierarchical' }
-        //     });
-        // }
-        // Generar aristas de conexión router-interfaz
+        // Generate router-to-interface connections
         if (node.data.type === 'interface') {
             hierarchicalEdges.push({
-                data: { source: node.data.router, target: node.data.id, type: 'router-connection' }
+                data: { 
+                    source: node.data.router, 
+                    target: node.data.id, 
+                    type: 'router-connection' 
+                }
             });
         }
     });
+    
     return [...edges, ...hierarchicalEdges];
 }
 
+/**
+ * Prepares nodes with positions for visualization.
+ * 
+ * @param {Array} nodes - Array of node objects
+ * @param {Array} edges - Array of edge objects (unused but kept for API consistency)
+ * @param {HTMLElement} container - The container element for the graph
+ * @returns {Array} Nodes with positions
+ */
 export function loadData(nodes, edges, container) {
     return nodes.map(node => ({
         ...node,
-        position: node.position || { x: Math.random() * 800, y: Math.random() * 600 }
+        position: node.position || { 
+            x: Math.random() * (container.offsetWidth || 800), 
+            y: Math.random() * (container.offsetHeight || 600) 
+        }
     }));
 }

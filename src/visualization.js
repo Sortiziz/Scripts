@@ -1,13 +1,29 @@
-// Import cytoscape as a module from the local file
-import cytoscape from '../lib/cytoscape.min.js';
-import { log, CONFIG, rgbToHex, isLocalStorageAvailable } from './utils.js';
+/**
+ * @fileoverview Graph visualization functions for BGP network display.
+ * Includes layout algorithms and graph initialization.
+ */
+
+import { log, CONFIG, rgbToHex, isLocalStorageAvailable, getHostNumber } from './utils.js';
 import { validateGraphData, loadData, generateInterfaceNodes, transformEdges, addHierarchicalEdges } from './data.js';
+import { getCytoscape } from './lib-imports.js';
 
-export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
-    console.log("Ejecutando bgpHierarchicalLayout...", { isRealTime });
-    console.log("Número de nodos:", nodes.length);
-    console.log("Número de aristas:", edges.length);
+/**
+ * Custom hierarchical layout algorithm for BGP networks.
+ * Positions ASes at the top, routers in the middle, and interfaces around routers.
+ * 
+ * @param {Object} cy - Cytoscape instance
+ * @param {Array} nodes - Array of node objects
+ * @param {Array} edges - Array of edge objects
+ * @param {boolean} [isRealTime=false] - Whether layout is being updated in real-time
+ */
+export const bgpHierarchicalLayout = async (cy, nodes, edges, isRealTime = false) => {
+    log("Ejecutando bgpHierarchicalLayout...", { isRealTime });
+    log("Número de nodos:", nodes.length);
+    log("Número de aristas:", edges.length);
 
+    // Eliminamos la opción de usar cose-bilkent debido a problemas de compatibilidad
+
+    // Layout parameters
     const asY = cy.height() * 0.15;
     const routerYRange = [cy.height() * 0.25, cy.height() * 0.45];
     const routerRadius = 120;
@@ -17,8 +33,11 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
     const interfaceAttractionForce = 1.5;
     const interfaceRepulsionForce = 4000;
     const maxInterfaceDistance = 120;
-    const maxIterations = isRealTime ? 100 : 500;
+    const maxIterations = isRealTime 
+        ? (nodes.length < 30 ? CONFIG.MAX_ITERATIONS.REAL_TIME / 2 : CONFIG.MAX_ITERATIONS.REAL_TIME) 
+        : CONFIG.MAX_ITERATIONS.DEFAULT;
 
+    // Create node map for tracking positions and velocities
     const nodeMap = {};
     nodes.forEach(node => {
         const pos = node.position || { x: Math.random() * cy.width(), y: Math.random() * cy.height() };
@@ -30,9 +49,10 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             parent: node.data.parent || null,
             locked: node.data.locked || false
         };
-        console.log(`Nodo ${node.data.id}: Posición inicial: (${pos.x}, ${pos.y})`);
+        log(`Nodo ${node.data.id}: Posición inicial: (${pos.x}, ${pos.y})`);
     });
 
+    // Position AS nodes at the top
     const asNodes = nodes.filter(n => !n.data.parent && !n.data.type);
     const numAS = asNodes.length;
     const asSpacing = Math.min(400, cy.width() / (numAS + 1));
@@ -40,9 +60,10 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
         if (nodeMap[node.data.id].locked) return;
         const x = (cy.width() / 2 - (numAS - 1) * asSpacing / 2 + index * asSpacing);
         nodeMap[node.data.id].pos = { x, y: asY };
-        console.log(`AS ${node.data.id}: Posición: (${x}, ${asY})`);
+        log(`AS ${node.data.id}: Posición: (${x}, ${asY})`);
     });
 
+    // Position router nodes below their parent AS
     const routerNodes = nodes.filter(n => n.data.parent && !n.data.type);
     const asToRouters = {};
     routerNodes.forEach(node => {
@@ -61,10 +82,11 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             const x = asPos.x + routerRadius * Math.cos(angle);
             const y = routerY + (routerRadius * 0.5) * Math.sin(angle);
             nodeMap[router.data.id].pos = { x, y };
-            console.log(`Router ${router.data.id}: Posición: (${x}, ${y})`);
+            log(`Router ${router.data.id}: Posición: (${x}, ${y})`);
         });
     });
 
+    // Position interface nodes around their parent router
     const interfaceNodes = nodes.filter(n => n.data.type === "interface");
     const routerToInterfaces = {};
     interfaceNodes.forEach(node => {
@@ -84,14 +106,17 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             const x = routerPos.x + interfaceRadius * Math.cos(angle) + (Math.random() * 20 - 10);
             const y = routerPos.y + interfaceRadius * Math.sin(angle) + (Math.random() * 20 - 10);
             nodeMap[intf.data.id].pos = { x, y };
-            console.log(`Interfaz ${intf.data.id}: Posición: (${x}, ${y})`);
+            log(`Interfaz ${intf.data.id}: Posición: (${x}, ${y})`);
         });
     });
 
+    // Filter edges to ensure source and target nodes exist
     edges = edges.filter(edge => nodeMap[edge.data.source] && nodeMap[edge.data.target]);
-    console.log("Aristas después de filtrar:", edges);
+    log("Aristas después de filtrar:", edges);
 
+    // Run force-directed layout iterations
     for (let i = 0; i < maxIterations; i++) {
+        // Apply repulsion forces between nodes
         Object.keys(nodeMap).forEach(id1 => {
             Object.keys(nodeMap).forEach(id2 => {
                 if (id1 === id2 || nodeMap[id1].locked || nodeMap[id2].locked) return;
@@ -112,6 +137,7 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             });
         });
 
+        // Apply attraction forces between connected nodes
         edges.forEach(edge => {
             const source = nodeMap[edge.data.source];
             const target = nodeMap[edge.data.target];
@@ -128,6 +154,7 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             target.vel.y -= fy;
         });
 
+        // Apply special forces for interface nodes
         interfaceNodes.forEach(intf => {
             const intfNode = nodeMap[intf.data.id];
             const router = nodeMap[intf.data.router];
@@ -141,6 +168,7 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             intfNode.vel.x += fx;
             intfNode.vel.y += fy;
 
+            // Limit maximum distance between interface and router
             if (distance > maxInterfaceDistance) {
                 const scale = maxInterfaceDistance / distance;
                 intfNode.pos.x = router.pos.x + dx * scale;
@@ -148,6 +176,7 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             }
         });
 
+        // Update positions and apply dampening
         Object.keys(nodeMap).forEach(id => {
             const node = nodeMap[id];
             if (node.locked) return;
@@ -156,12 +185,17 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
             node.vel.x *= 0.9;
             node.vel.y *= 0.9;
 
+            // Ensure nodes stay within canvas bounds
             node.pos.x = Math.max(0, Math.min(cy.width(), node.pos.x));
             node.pos.y = Math.max(0, Math.min(cy.height(), node.pos.y));
         });
     }
 
+    /**
+     * Helper function to reorder nodes to minimize edge crossings
+     */
     const reorderToMinimizeCrossings = () => {
+        // Reorder routers by connectivity
         Object.entries(asToRouters).forEach(([asId, routers]) => {
             if (!nodeMap[asId]) return;
             const routerConnectivity = routers.map(r => ({
@@ -178,10 +212,11 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
                 const x = asPos.x + routerRadius * Math.cos(angle);
                 const y = routerYRange[0] + (routerYRange[1] - routerYRange[0]) * Math.sin(angle);
                 nodeMap[r.node.data.id].pos = { x, y };
-                console.log(`Router ${r.node.data.id} (reordenado): Posición: (${x}, ${y})`);
+                log(`Router ${r.node.data.id} (reordenado): Posición: (${x}, ${y})`);
             });
         });
 
+        // Reorder interfaces around routers
         Object.entries(routerToInterfaces).forEach(([routerId, interfaces]) => {
             if (!nodeMap[routerId]) return;
             const routerPos = nodeMap[routerId].pos;
@@ -192,51 +227,68 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
                 const x = routerPos.x + interfaceRadius * Math.cos(angle) + (Math.random() * 20 - 10);
                 const y = routerPos.y + interfaceRadius * Math.sin(angle) + (Math.random() * 20 - 10);
                 nodeMap[intf.data.id].pos = { x, y };
-                console.log(`Interfaz ${intf.data.id} (reordenado): Posición: (${x}, ${y})`);
+                log(`Interfaz ${intf.data.id} (reordenado): Posición: (${x}, ${y})`);
             });
         });
     };
+    
     reorderToMinimizeCrossings();
 
+    // Update node positions in Cytoscape
     cy.startBatch();
     cy.nodes().forEach(node => {
         const nm = nodeMap[node.id()];
         if (nm) {
             node.position({ x: nm.pos.x, y: nm.pos.y });
-            console.log(`Nodo ${node.id()} (final): Posición: (${nm.pos.x}, ${nm.pos.y})`);
+            log(`Nodo ${node.id()} (final): Posición: (${nm.pos.x}, ${nm.pos.y})`);
         }
     });
     cy.endBatch();
 };
 
+/**
+ * Initialize the network graph and render it.
+ * 
+ * @returns {Promise<Object>} Promise resolving to the Cytoscape instance
+ */
 export const initializeGraph = async () => {
-    const loadingElement = document.getElementById("loading");
-    loadingElement.style.display = "block";
     try {
+        // Obtener la instancia de Cytoscape
+        const cytoscape = await getCytoscape();
+        if (!cytoscape) {
+            throw new Error("Cytoscape no está cargado correctamente.");
+        }
+        
+        const loadingElement = document.getElementById("loading");
+        loadingElement.style.display = "block";
+        
+        // Load graph data
         const response = await fetch("bgp_graph.json", { cache: "no-store" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        console.log("Datos cargados de bgp_graph.json:", data);
+        log("Datos cargados de bgp_graph.json:", data);
 
+        // Validate and prepare data
         validateGraphData(data);
         const interfaceNodes = generateInterfaceNodes(data.nodes);
-        console.log("Nodos de interfaz generados:", interfaceNodes);
+        log("Nodos de interfaz generados:", interfaceNodes);
 
         const cyContainer = document.getElementById("cy");
         if (!cyContainer) {
             throw new Error("Contenedor #cy no encontrado en el DOM.");
         }
-        console.log("Dimensiones del contenedor #cy:", { width: cyContainer.offsetWidth, height: cyContainer.offsetHeight });
+        log("Dimensiones del contenedor #cy:", { width: cyContainer.offsetWidth, height: cyContainer.offsetHeight });
 
         const allNodes = loadData(data.nodes.concat(interfaceNodes), data.edges, cyContainer);
-        console.log("Todos los nodos después de loadData:", allNodes);
+        log("Todos los nodos después de loadData:", allNodes);
 
         const transformedEdges = transformEdges(data.edges, interfaceNodes);
-        console.log("Aristas transformadas:", transformedEdges);
+        log("Aristas transformadas:", transformedEdges);
 
         const allEdges = addHierarchicalEdges(allNodes, transformedEdges);
-        console.log("Todas las aristas después de addHierarchicalEdges:", allEdges);
+        log("Todas las aristas después de addHierarchicalEdges:", allEdges);
 
+        // Create Cytoscape instance
         const cy = cytoscape({
             container: cyContainer,
             elements: { nodes: allNodes, edges: allEdges },
@@ -276,9 +328,9 @@ export const initializeGraph = async () => {
                         "background-color": CONFIG.DEFAULT_COLORS.INTERFACE || "#00ff00",
                         shape: "ellipse", 
                         label: ele => `${ele.data("router")}-${ele.data("label")}`, 
-                        width: 5, 
+                        width: 5,
                         height: 5, 
-                        "font-size": 4, 
+                        "font-size": 4,
                         "border-width": 0.5, 
                         "border-color": "#000",
                         "text-valign": "center",
@@ -322,9 +374,11 @@ export const initializeGraph = async () => {
             layout: { name: "preset", fit: false, padding: 50 }
         });
 
+        // Apply saved positions or use layout algorithm
         const savedData = isLocalStorageAvailable() ? JSON.parse(localStorage.getItem("bgpNodeData") || "{}") : {};
         if (!Object.keys(savedData).length) {
-            bgpHierarchicalLayout(cy, allNodes, allEdges, false);
+            // Usamos el layout personalizado sin cose-bilkent
+            await bgpHierarchicalLayout(cy, allNodes, allEdges, false);
         } else {
             cy.nodes().forEach(node => {
                 const pos = savedData.positions?.[node.id()];
@@ -333,25 +387,37 @@ export const initializeGraph = async () => {
             });
         }
 
+        // Finalize layout
         cy.layout({ name: 'preset' }).run();
         cy.fit();
         cy.zoom(0.8);
         cy.center();
 
         cy.nodes().forEach(node => {
-            console.log(`Nodo ${node.id()} después del layout: Posición: (${node.position().x}, ${node.position().y}), Visible: ${node.visible()}`);
+            log(`Nodo ${node.id()} después del layout: Posición: (${node.position().x}, ${node.position().y}), Visible: ${node.visible()}`);
         });
 
         return cy;
     } catch (error) {
-        console.error("Error al inicializar el grafo:", error);
-        loadingElement.textContent = `Error: ${error.message}.`;
+        log("Error al inicializar el grafo:", error);
+        const loadingElement = document.getElementById("loading");
+        if (loadingElement) {
+            loadingElement.textContent = `Error: ${error.message}.`;
+        }
         throw error;
     } finally {
-        setTimeout(() => (loadingElement.style.display = "none"), 3000);
+        const loadingElement = document.getElementById("loading");
+        if (loadingElement) {
+            setTimeout(() => (loadingElement.style.display = "none"), 3000);
+        }
     }
 };
 
+/**
+ * Updates edge labels with IP address information.
+ * 
+ * @param {Object} cy - Cytoscape instance
+ */
 export const updateEdgeLabels = (cy) => {
     cy.edges("[!invisible][type!='hierarchical']").forEach(edge => {
         const source = cy.getElementById(edge.data("source"));
@@ -371,16 +437,15 @@ export const updateEdgeLabels = (cy) => {
     });
 };
 
+/**
+ * Updates the legend colors based on current configuration.
+ * 
+ * @param {Object} cy - Cytoscape instance (unused but kept for API consistency)
+ */
 export const updateLegend = (cy) => {
     const legendItems = document.querySelectorAll(".legend-item");
     legendItems[0].querySelector(".legend-color").style.backgroundColor = CONFIG.DEFAULT_COLORS.AS || "#ddd";
     legendItems[1].querySelector(".legend-color").style.backgroundColor = CONFIG.DEFAULT_COLORS.ROUTER || "#ffaa00";
     legendItems[2].querySelector(".legend-color").style.backgroundColor = CONFIG.DEFAULT_COLORS.INTERFACE || "#00ff00";
     legendItems[3].querySelector(".legend-color").style.backgroundColor = CONFIG.DEFAULT_COLORS.EDGE || "#000";
-};
-
-const getHostNumber = (ip) => {
-    if (!ip || typeof ip !== "string") return "N/A";
-    const parts = ip.split(".");
-    return parts.length >= 4 ? parts[3].split("/")[0] : "N/A";
 };

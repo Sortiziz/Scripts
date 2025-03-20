@@ -1,4 +1,5 @@
 {
+    "___FORMATO_ESPERADO___": "Este archivo contiene una representación JSON de un grafo BGP. Cada nodo representa un AS o router, y cada enlace representa una conexión BGP. La estructura debe seguir el siguiente formato: (1) Cada nodo debe tener un ID único. (2) Los routers deben tener un 'parent' que es el ID de su AS. (3) Las interfaces deben estar declaradas en cada router. (4) Cada enlace debe especificar 'source', 'target', 'sourceInterface', 'targetInterface' y 'weight'.",
     "nodes": [
         {"data": {"id": "AS1", "label": "AS1"}},
         {"data": {"id": "R1", "label": "R1", "parent": "AS1", "interfaces": {"eth0": "192.168.1.1/30", "eth1": "192.168.2.1/30", "eth2": "192.168.3.1/30", "eth4": "192.168.10.1/30"}}},
