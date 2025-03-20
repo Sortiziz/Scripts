@@ -1,3 +1,5 @@
+// Import cytoscape as a module from the local file
+import cytoscape from '../lib/cytoscape.min.js';
 import { log, CONFIG, rgbToHex, isLocalStorageAvailable } from './utils.js';
 import { validateGraphData, loadData, generateInterfaceNodes, transformEdges, addHierarchicalEdges } from './data.js';
 
@@ -208,9 +210,6 @@ export const bgpHierarchicalLayout = (cy, nodes, edges, isRealTime = false) => {
 };
 
 export const initializeGraph = async () => {
-    if (typeof cytoscape === "undefined") {
-        throw new Error("Cytoscape no está cargado.");
-    }
     const loadingElement = document.getElementById("loading");
     loadingElement.style.display = "block";
     try {
@@ -277,15 +276,15 @@ export const initializeGraph = async () => {
                         "background-color": CONFIG.DEFAULT_COLORS.INTERFACE || "#00ff00",
                         shape: "ellipse", 
                         label: ele => `${ele.data("router")}-${ele.data("label")}`, 
-                        width: 5, // Ajustar a un tamaño pequeño pero visible
+                        width: 5, 
                         height: 5, 
-                        "font-size": 4, // Ajustar el tamaño de la fuente
+                        "font-size": 4, 
                         "border-width": 0.5, 
                         "border-color": "#000",
                         "text-valign": "center",
                         "text-halign": "center",
                         opacity: 1,
-                        "min-zoomed-font-size": 2 // Asegurar que la fuente sea visible incluso con zoom
+                        "min-zoomed-font-size": 2
                     }
                 },
                 { 
@@ -336,7 +335,7 @@ export const initializeGraph = async () => {
 
         cy.layout({ name: 'preset' }).run();
         cy.fit();
-        cy.zoom(0.8); // Reducir el zoom para evitar que los nodos se escalen demasiado
+        cy.zoom(0.8);
         cy.center();
 
         cy.nodes().forEach(node => {

@@ -97,10 +97,9 @@ export const setupInteractivity = (cy) => {
     };
     setupTooltips();
 
-    // Modificar el evento de arrastre para no bloquear las interfaces permanentemente
     cy.nodes().on('dragfree', evt => {
         const node = evt.target;
-        node.data('locked', true); // Bloquear solo después de soltar
+        node.data('locked', true);
     });
 
     const saveData = () => {
@@ -130,7 +129,7 @@ export const setupInteractivity = (cy) => {
             newNodes.forEach(newNode => {
                 const node = cy.getElementById(newNode.data.id);
                 node.position(newNode.position);
-                node.data('locked', false); // Desbloquear todos los nodos
+                node.data('locked', false);
             });
         });
         bgpHierarchicalLayout(cy, newNodes, edges, false);
@@ -195,7 +194,6 @@ export const setupInteractivity = (cy) => {
         showNotification("Colores reseteados.");
     };
 
-    // Agregar un botón para desbloquear todos los nodos
     const unlockBtn = document.createElement("button");
     unlockBtn.textContent = "Desbloquear Nodos";
     unlockBtn.setAttribute("aria-label", "Desbloquear todos los nodos");
